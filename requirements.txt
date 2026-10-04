@@ -1,0 +1,9 @@
+# torch is preinstalled on Colab; install it separately elsewhere.
+numpy
+scipy
+scikit-learn
+pandas
+matplotlib
+requests
+remotezip
+pypatchworkpp
