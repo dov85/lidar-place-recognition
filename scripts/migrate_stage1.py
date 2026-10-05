@@ -3,7 +3,7 @@
 Before                                   After
   <drive>/ndt_kitti00_patchwork.tar  ->  <drive>/ndt/<variant>/cells_00.tar (+ config.json)
   <drive>/00_stats.csv               ->  <drive>/ndt/<variant>/stats_00.csv
-  <drive>/runs/ndt_kitti00/          ->  <drive>/runs/<run>/ (+ config.json, ndt_config.json)
+  <drive>/runs/ndt_kitti00/          ->  <drive>/runs/ndt/<run>/ (+ config.json, ndt_config.json)
 
 The first variant used the default parameters (patchwork, 80 m square, G defaults)
 and the first run the default training parameters, so the hashes match what
@@ -48,7 +48,7 @@ def main():
     train_given = {k: old_args[k] for k in TRAIN_DEFAULTS if k in old_args}
     train_params = full_params(TRAIN_DEFAULTS, train_given)
     run = f"{STAGE1_DATE}_baseline_{run_hash(train_params, variant)}"
-    rdir = os.path.join(d, "runs", run)
+    rdir = os.path.join(d, "runs", "ndt", run)
 
     old_tar, old_stats = os.path.join(d, a.old_tar), os.path.join(d, a.old_stats)
     plan = [(old_tar, os.path.join(vdir, "cells_00.tar")),
@@ -63,6 +63,7 @@ def main():
         return
 
     os.makedirs(vdir, exist_ok=True)
+    os.makedirs(os.path.dirname(rdir), exist_ok=True)
     for src, dst in plan:
         if os.path.exists(src) and not os.path.exists(dst):
             shutil.move(src, dst)

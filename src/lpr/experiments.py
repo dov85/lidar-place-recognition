@@ -1,16 +1,18 @@
-"""Bookkeeping for NDT variants and training runs on Google Drive.
+"""Bookkeeping for preprocessing variants and training runs on Google Drive.
 
-Layout
-  <drive>/ndt/<variant>/config.json        every preprocessing + G parameter, and per
+Two methods share the layout: "ndt" (NDT-Transformer, NDT cells) and "bev"
+(BEVPlace++, BEV density images).
+  <drive>/<method>/<variant>/config.json   every preprocessing parameter, and per
                                             sequence: scans, stats, date ("seqs")
-                        cells_<seq>.tar     the NDT cells of one sequence
-                        stats_<seq>.csv     per-scan statistics
-                        preview_<seq>.png   cells drawn on one scan
-  <drive>/runs/<run>/config.json            training parameters, NDT variant, status
-                     ndt_config.json        copy of the variant's config
-                     metrics.csv            per-epoch loss / recall / time
-                     epoch_XX.pth, latest.pth, eval_<seq>.json
-  <drive>/runs_summary.csv                  one row per run
+                    <archive>_<seq>.tar    one sequence (cells_XX.tar for ndt,
+                                            imgs_XX.tar for bev)
+                    stats_<seq>.csv        per-scan statistics
+  <drive>/runs/<method>/<run>/config.json  training parameters, variant, status
+                     <method>_config.json  copy of the variant's config
+                     metrics.csv           per-epoch loss / recall / time
+                     epoch_XX.pth, latest.pth, eval_<seq>.json, eval_<seq>_matches.npz
+  <drive>/analysis/heading/<method>/<run>/ heading analysis of one run
+  <drive>/runs_summary.csv                 one row per run (column "method")
 
 Names are "<date>_<tag>_<hash>": the hash comes from the parameters, so the same
 parameters always find the same folder (a disconnected run resumes), and different
@@ -35,6 +37,35 @@ NDT_DEFAULTS = dict(
     knn=8,
     cov_eps=1e-3,
 )
+
+BEV_DEFAULTS = dict(       # official BEVPlace++ values (datasets/gen_bev_images.py)
+    half_size=40.0,
+    z_abs=40.0,
+    voxel=0.4,
+    res=0.4,
+    max_count=10,
+    ground="none",
+)
+
+BEV_TRAIN_DEFAULTS = dict(  # official BEVPlace++ values (main.py, kitti_dataset.py)
+    seq="00",
+    train_frames=3000,     # the first 3000 frames of the sequence
+    pos_thr=5.0,
+    neg_thr=7.0,
+    epochs=40,
+    lr=1e-4,
+    batch=4,               # triplets per batch (query, positive, 10 negatives)
+    negatives=10,
+    margin=0.3,
+    rot_aug=True,          # random 0-360 deg rotation of every training image
+    seed=1024,
+)
+
+METHODS = {
+    # method: (preprocessing defaults, training defaults, archive prefix, variant key in run hash)
+    "ndt": ("NDT_DEFAULTS", "TRAIN_DEFAULTS", "cells", "ndt_variant"),
+    "bev": ("BEV_DEFAULTS", "BEV_TRAIN_DEFAULTS", "imgs", "bev_variant"),
+}
 
 TRAIN_DEFAULTS = dict(
     seq="00",
@@ -121,11 +152,24 @@ def upgrade_ndt_config(cfg):
     return cfg, True
 
 
+def method_defaults(method):
+    pre, train, _, _ = METHODS[method]
+    return globals()[pre], globals()[train]
+
+
+def archive_name(method, seq):
+    return f"{METHODS[method][2]}_{seq}.tar"
+
+
 def resolve_ndt_variant(drive, params, tag=""):
+    return resolve_variant(drive, "ndt", params, tag)
+
+
+def resolve_variant(drive, method, params, tag=""):
     """Existing variant with exactly these parameters, or a new name for them."""
-    p = full_params(NDT_DEFAULTS, params)
+    p = full_params(method_defaults(method)[0], params)
     h = _hash(p)
-    for cfg_path in sorted(glob.glob(os.path.join(drive, "ndt", "*", "config.json"))):
+    for cfg_path in sorted(glob.glob(os.path.join(drive, method, "*", "config.json"))):
         cfg = _read(cfg_path)
         if cfg:
             cfg, changed = upgrade_ndt_config(cfg)
@@ -137,19 +181,18 @@ def resolve_ndt_variant(drive, params, tag=""):
     return _new_name(tag, h), p, False
 
 
-def resolve_run(drive, train_params, ndt_variant, tag=""):
-    """Run folder for these parameters and NDT variant.
+def resolve_run(drive, train_params, ndt_variant, tag="", method="ndt"):
+    """Run folder (under <drive>/runs/<method>/) for these parameters and variant.
 
     state "resume": an unfinished run exists and is continued;
     state "finished": a finished run exists; training is skipped and only evaluation runs
                       (to repeat it on purpose, change the seed);
     state "new": nothing with these parameters yet.
     """
-    p = full_params(TRAIN_DEFAULTS, train_params)
-    key = {"train": p, "ndt_variant": ndt_variant}
-    h = _hash(key)
+    p = full_params(method_defaults(method)[1], train_params)
+    h = run_hash(p, ndt_variant, method)
     finished_twin = None
-    for cfg_path in sorted(glob.glob(os.path.join(drive, "runs", "*", "config.json"))):
+    for cfg_path in sorted(glob.glob(os.path.join(drive, "runs", method, "*", "config.json"))):
         cfg = _read(cfg_path)
         if cfg and cfg.get("params_hash") == h:
             name = os.path.basename(os.path.dirname(cfg_path))
@@ -161,8 +204,8 @@ def resolve_run(drive, train_params, ndt_variant, tag=""):
     return _new_name(tag, h), p, "new"
 
 
-def run_hash(train_params_full, ndt_variant):
-    return _hash({"train": train_params_full, "ndt_variant": ndt_variant})
+def run_hash(train_params_full, variant, method="ndt"):
+    return _hash({"train": train_params_full, METHODS[method][3]: variant})
 
 
 def ndt_hash(ndt_params_full):
