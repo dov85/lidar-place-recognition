@@ -5,6 +5,7 @@ Example:
       --kitti_root /content/kitti --seq 00 --out runs/ndt_00/eval_00.json
 """
 import argparse
+import glob
 import json
 import os
 import sys
@@ -45,7 +46,7 @@ def main():
     model.load_state_dict(ck.get("model", ck.get("state_dict", ck)))
     model.eval()
 
-    n = kitti.num_frames(args.kitti_root, args.seq)
+    n = len(glob.glob(os.path.join(args.ndt_dir, args.seq, "*.bin")))
     files = [os.path.join(args.seq, f"{i:06d}.bin") for i in range(n)]
     t0 = time.time()
     desc = []
