@@ -17,8 +17,9 @@ from matplotlib.collections import EllipseCollection  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti  # noqa: E402
+from lpr.experiments import NDT_DEFAULTS  # noqa: E402
 from lpr.ndt_g import ndt_cells  # noqa: E402
-from lpr.preprocess import crop_box, preprocess  # noqa: E402
+from lpr.preprocess import crop, preprocess  # noqa: E402
 
 
 def ellipses(ax, means, covs, color):
@@ -37,22 +38,33 @@ def main():
     ap.add_argument("--kitti_root", required=True)
     ap.add_argument("--seq", default="00")
     ap.add_argument("--idx", type=int, default=0)
-    ap.add_argument("--ground", default="patchwork")
     ap.add_argument("--out", default="ndt_cells.png")
+    d = NDT_DEFAULTS  # same options as extract_ndt.py, so a preview matches its variant
+    ap.add_argument("--ground", default=d["ground"])
+    ap.add_argument("--crop", default=d["crop"])
+    ap.add_argument("--half_size", type=float, default=d["half_size"])
+    ap.add_argument("--k", type=int, default=d["k"])
+    ap.add_argument("--over", type=float, default=d["over"])
+    ap.add_argument("--radius", type=float, default=d["radius"])
+    ap.add_argument("--min_pts", type=int, default=d["min_pts"])
+    ap.add_argument("--knn", type=int, default=d["knn"])
+    ap.add_argument("--cov_eps", type=float, default=d["cov_eps"])
+    ap.add_argument("--variant", default="")
     args = ap.parse_args()
 
     scan = kitti.load_scan(kitti.scan_path(args.kitti_root, args.seq, args.idx))
     t0 = time.time()
-    pts = preprocess(scan, ground=args.ground)
+    pts = preprocess(scan, ground=args.ground, half_size=args.half_size, crop_shape=args.crop)
     t1 = time.time()
-    means, covs, info = ndt_cells(pts)
+    means, covs, info = ndt_cells(pts, k=args.k, over=args.over, radius=args.radius,
+                                  min_pts=args.min_pts, knn=args.knn, cov_eps=args.cov_eps)
     t2 = time.time()
-    raw = crop_box(scan)
+    raw = crop(scan, args.crop, args.half_size)
 
     fig, axes = plt.subplots(1, 3, figsize=(21, 7))
     for ax in axes:
-        ax.set_xlim(-40, 40)
-        ax.set_ylim(-40, 40)
+        ax.set_xlim(-args.half_size, args.half_size)
+        ax.set_ylim(-args.half_size, args.half_size)
         ax.set_aspect("equal")
     axes[0].scatter(raw[:, 0], raw[:, 1], s=0.05, c="k")
     axes[0].set_title(f"cropped scan ({len(raw)} points)")
@@ -62,6 +74,8 @@ def main():
     ellipses(axes[2], means, covs, "tab:red")
     axes[2].set_title(f"{len(means)} NDT cells (voxel {info['voxel']:.2f} m, "
                       f"{info['removed']} removed, {t2 - t1:.2f} s)")
+    if args.variant:
+        fig.suptitle(f"{args.variant}  |  scan {args.seq}/{args.idx:06d}")
     fig.tight_layout()
     fig.savefig(args.out, dpi=110)
     print(info, f"preprocess {t1 - t0:.2f}s, G {t2 - t1:.2f}s ->", args.out)

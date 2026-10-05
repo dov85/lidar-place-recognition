@@ -40,6 +40,7 @@ from sklearn.neighbors import KDTree  # noqa: E402
 
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
+from lpr.experiments import TRAIN_DEFAULTS, full_params, git_commit, run_hash, write_json  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CELLS = 2000
@@ -71,6 +72,7 @@ def parse():
     ap.add_argument("--eval_split", type=int, default=None, help="override split (tests)")
     ap.add_argument("--eval_gap", type=int, default=kitti.QUERY_GAP, help="with --eval_split")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--ndt_variant", default="", help="name of the NDT variant (recorded)")
     return ap.parse_args()
 
 
@@ -168,9 +170,44 @@ def save_ckpt(path, **state):
     os.replace(tmp, path)
 
 
+def run_config(args):
+    """Full training parameters (same keys as experiments.TRAIN_DEFAULTS) and their hash."""
+    tuples_json = os.path.splitext(args.train_pickle)[0] + ".json"
+    tuples = json.load(open(tuples_json)) if os.path.exists(tuples_json) else {}
+    given = {k: getattr(args, k) for k in TRAIN_DEFAULTS if hasattr(args, k)}
+    given.update({k: tuples[k] for k in ("pos_thr", "neg_thr") if k in tuples})
+    params = full_params(TRAIN_DEFAULTS, given)
+    return params, run_hash(params, args.ndt_variant), tuples
+
+
 def main():
     args = parse()
     os.makedirs(args.log_dir, exist_ok=True)
+    params, phash, tuples = run_config(args)
+    cfg_path = os.path.join(args.log_dir, "config.json")
+    old = json.load(open(cfg_path)) if os.path.exists(cfg_path) else None
+    if old is not None and old.get("params_hash") != phash:
+        raise SystemExit(
+            f"{args.log_dir} already holds a run with different parameters "
+            f"(hash {old.get('params_hash')} != {phash}). Use a new log_dir / run name.")
+    run_cfg = old or {
+        "run": os.path.basename(os.path.normpath(args.log_dir)),
+        "ndt_variant": args.ndt_variant,
+        "params": params,
+        "params_hash": phash,
+        "tuples": tuples,
+        "paths": {"ndt_dir": args.ndt_dir, "train_pickle": args.train_pickle},
+        "code_commit": git_commit(ROOT),
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "sessions": 0,
+    }
+    run_cfg["status"] = "running"
+    run_cfg["sessions"] = run_cfg.get("sessions", 0) + 1
+    write_json(cfg_path, run_cfg)
+    ndt_cfg = os.path.join(args.ndt_dir, "config.json")
+    if os.path.exists(ndt_cfg):
+        write_json(os.path.join(args.log_dir, "ndt_config.json"), json.load(open(ndt_cfg)))
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -195,8 +232,6 @@ def main():
         scaler.load_state_dict(ck["scaler"])
         epoch, start_iter, perm = ck["epoch"], ck["iter"], ck["perm"]
         print(f"resumed from {latest}: epoch {epoch}, iteration {start_iter}")
-    with open(os.path.join(args.log_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=1)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"device {DEVICE}, parameters {n_params / 1e6:.2f} M, training queries {len(queries)}")
 
@@ -273,6 +308,9 @@ def main():
         save_ckpt(latest, **state)
         save_ckpt(os.path.join(args.log_dir, f"epoch_{epoch:02d}.pth"), model=model.state_dict(),
                   epoch=epoch)
+    run_cfg["status"] = "finished"
+    run_cfg["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    write_json(cfg_path, run_cfg)
     print("training finished")
 
 

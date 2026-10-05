@@ -13,6 +13,7 @@ Example:
       --ndt_dir /content/ndt --out /content/ndt/train_00.pickle
 """
 import argparse
+import json
 import os
 import pickle
 import sys
@@ -52,6 +53,11 @@ def main():
     n_pos = np.array([len(q["positives"]) for q in queries.values()])
     with open(args.out, "wb") as f:
         pickle.dump(queries, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # sidecar read by the trainer, so the thresholds end up in the run's config.json
+    with open(os.path.splitext(args.out)[0] + ".json", "w") as f:
+        json.dump({"seq": args.seq, "split": split, "pos_thr": args.pos_thr,
+                   "neg_thr": args.neg_thr, "n_queries": split,
+                   "median_positives": float(np.median(n_pos))}, f, indent=1)
     print(f"{split} training queries; positives per query: median {np.median(n_pos):.0f}, "
           f"min {n_pos.min()}; queries with <2 positives (skipped by the trainer): "
           f"{(n_pos < 2).sum()} -> {args.out}")

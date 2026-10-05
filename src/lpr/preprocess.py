@@ -2,7 +2,8 @@
 
 Two steps, both documented as design choices of this project (the
 NDT-Transformer paper does not specify them for single KITTI scans):
-  1. crop to the same 80 m x 80 m square that BEVPlace++ projects to its BEV image;
+  1. crop to the same 80 m x 80 m square that BEVPlace++ projects to its BEV image
+     (or, optionally, to a circle of the same radius, which does not change under rotation);
   2. ground removal with Patchwork++ (RANSAC plane fit as a fallback).
 """
 import numpy as np
@@ -16,6 +17,19 @@ _patchwork = None
 def crop_box(points, half_size=CROP_HALF_SIZE_M):
     m = (np.abs(points[:, 0]) <= half_size) & (np.abs(points[:, 1]) <= half_size)
     return points[m]
+
+
+def crop_circle(points, radius=CROP_HALF_SIZE_M):
+    """Rotation-invariant alternative: keep points within `radius` in the x-y plane."""
+    return points[points[:, 0] ** 2 + points[:, 1] ** 2 <= radius ** 2]
+
+
+def crop(points, shape="square", size=CROP_HALF_SIZE_M):
+    if shape == "square":
+        return crop_box(points, size)
+    if shape == "circle":
+        return crop_circle(points, size)
+    raise ValueError(f"unknown crop shape: {shape}")
 
 
 def _get_patchwork(sensor_height):
@@ -61,9 +75,9 @@ def remove_ground_ransac(points4, sensor_height=KITTI_SENSOR_HEIGHT_M,
     return points4[np.abs(xyz @ best_n + best_d) >= dist_thr]
 
 
-def preprocess(points4, ground="patchwork", half_size=CROP_HALF_SIZE_M):
+def preprocess(points4, ground="patchwork", half_size=CROP_HALF_SIZE_M, crop_shape="square"):
     """Crop and remove the ground. Returns (M, 3) float64 xyz."""
-    pts = crop_box(points4, half_size)
+    pts = crop(points4, crop_shape, half_size)
     if ground == "patchwork":
         pts = remove_ground_patchwork(pts)
     elif ground == "ransac":

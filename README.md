@@ -31,6 +31,23 @@ Run `notebooks/01_ndt_kitti00.ipynb` on Colab with a GPU runtime. It:
 The per-epoch evaluation during training uses the query frames and is for monitoring only.
 The reported number is the last epoch, not the best one.
 
+## Experiments: NDT variants and training runs
+
+Everything is driven from cell 1 of `notebooks/01_ndt_kitti00.ipynb`: `NDT_PARAMS` (preprocessing + G)
+and `TRAIN_PARAMS` (training), each holding only what differs from the defaults in
+`src/lpr/experiments.py`. Results are kept on Google Drive:
+
+```
+MyDrive/lpr/ndt/<variant>/   config.json, cells_<seq>.tar, stats_<seq>.csv, preview_<seq>.png
+MyDrive/lpr/runs/<run>/      config.json, ndt_config.json, metrics.csv, epoch_XX.pth, latest.pth, eval_<seq>.json
+MyDrive/lpr/runs_summary.csv one row per run (scripts/summarize_runs.py)
+```
+
+Names are `<date>_<tag>_<hash of the parameters>`. The same parameters always map to the same folder:
+an NDT variant is never built twice, an unfinished run resumes after a disconnect, and a finished run is
+not trained again (change the seed to repeat it). `train_ndt_kitti.py` refuses to write into a run folder
+that holds different parameters.
+
 ## Design decisions in G (see `src/lpr/ndt_g.py`)
 
 From the paper: k = 2000 cells, 0.8 m, binary search on the resolution, removal of redundant
