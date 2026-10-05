@@ -48,6 +48,36 @@ an NDT variant is never built twice, an unfinished run resumes after a disconnec
 not trained again (change the seed to repeat it). `train_ndt_kitti.py` refuses to write into a run folder
 that holds different parameters.
 
+## All sequences on Azure
+
+The raw scans of 00, 02, 05, 06 and 08 and the NDT cells of 02-08 are built on an Azure VM and kept in an
+Azure Blob container; Colab copies the cells into the variant's Drive folder (notebook section 9).
+A variant is independent of the sequence, so the cells of every sequence live in the same variant folder.
+
+**Once, in the Azure portal (West Europe for everything):**
+1. Storage account (Standard, LRS) -> Containers -> new private container, e.g. `kitti`.
+   Container -> Shared access tokens: permissions Read, Add, Create, Write, List, expiry ~2 months
+   -> Generate -> copy the **Blob SAS URL**. (If the portal complains, register `Microsoft.Storage`
+   under Subscription -> Resource providers, as was done for `Microsoft.Compute`.)
+2. Virtual machine: Ubuntu Server 24.04, size `Standard_D4s_v5` (4 vCPU, 16 GB; fits the 6-vCPU quota),
+   SSH key authentication (download the `.pem` key), OS disk 128 GiB Standard SSD,
+   Management -> Auto-shutdown at night.
+
+**On the VM** (`ssh -i <key>.pem azureuser@<public IP>`):
+```
+git clone https://github.com/dov85/lidar-place-recognition.git && cd lidar-place-recognition
+tmux new -s build                       # the build keeps running if SSH disconnects
+export VARIANT=<variant name from notebook cell 3>
+bash scripts/azure_build_ndt.sh "<Blob SAS URL>"
+```
+For another variant, also set `NDT_ARGS` to its options (as printed in notebook cell 4); raw scans are taken
+from the container, not from KITTI. Stop the VM when the script ends; delete VM and disk when no longer needed
+(the storage account keeps the raw scans and cells).
+
+**In Colab:** paste the SAS URL into section 9 and run 9a-9c: cells to Drive, evaluation of the run on every
+sequence, and the heading analysis (`scripts/heading_analysis.py`: how far the query headings are from the map
+frames at the same place, and Recall@1 for same / crossing / opposite headings).
+
 ## Design decisions in G (see `src/lpr/ndt_g.py`)
 
 From the paper: k = 2000 cells, 0.8 m, binary search on the resolution, removal of redundant

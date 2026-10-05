@@ -1,8 +1,9 @@
 """Bookkeeping for NDT variants and training runs on Google Drive.
 
 Layout
-  <drive>/ndt/<variant>/config.json        every preprocessing + G parameter
-                        cells_<seq>.tar     the NDT cells
+  <drive>/ndt/<variant>/config.json        every preprocessing + G parameter, and per
+                                            sequence: scans, stats, date ("seqs")
+                        cells_<seq>.tar     the NDT cells of one sequence
                         stats_<seq>.csv     per-scan statistics
                         preview_<seq>.png   cells drawn on one scan
   <drive>/runs/<run>/config.json            training parameters, NDT variant, status
@@ -13,7 +14,8 @@ Layout
 
 Names are "<date>_<tag>_<hash>": the hash comes from the parameters, so the same
 parameters always find the same folder (a disconnected run resumes), and different
-parameters always get a new one.
+parameters always get a new one. A variant does not depend on the sequence: the
+same parameters applied to 00, 02, ... live in one folder, one tar per sequence.
 """
 import datetime
 import glob
@@ -23,7 +25,6 @@ import os
 import subprocess
 
 NDT_DEFAULTS = dict(
-    seq="00",
     crop="square",        # square (as BEVPlace++) or circle
     half_size=40.0,       # m; also the coordinate normalisation scale
     ground="patchwork",   # patchwork | ransac | none
@@ -106,12 +107,30 @@ def _new_name(tag, h):
     return f"{date}_{tag}_{h}" if tag else f"{date}_{h}"
 
 
+def upgrade_ndt_config(cfg):
+    """Configs written before variants became sequence-independent had "seq" in the
+    parameters (and in the hash). Move it to cfg["seqs"] and recompute the hash."""
+    params = cfg.get("params", {})
+    if "seq" not in params:
+        return cfg, False
+    seq = params.pop("seq")
+    per_seq = {k: cfg.pop(k) for k in ("n_scans", "stats_mean", "padded_scans", "started",
+                                       "finished") if k in cfg}
+    cfg.setdefault("seqs", {})[seq] = per_seq
+    cfg["params_hash"] = _hash(params)
+    return cfg, True
+
+
 def resolve_ndt_variant(drive, params, tag=""):
     """Existing variant with exactly these parameters, or a new name for them."""
     p = full_params(NDT_DEFAULTS, params)
     h = _hash(p)
     for cfg_path in sorted(glob.glob(os.path.join(drive, "ndt", "*", "config.json"))):
         cfg = _read(cfg_path)
+        if cfg:
+            cfg, changed = upgrade_ndt_config(cfg)
+            if changed:
+                write_json(cfg_path, cfg)
         if cfg and cfg.get("params_hash") == h:
             name = os.path.basename(os.path.dirname(cfg_path))
             return name, p, True

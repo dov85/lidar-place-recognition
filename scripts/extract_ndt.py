@@ -20,7 +20,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti  # noqa: E402
-from lpr.experiments import NDT_DEFAULTS, full_params, git_commit, ndt_hash, write_json  # noqa: E402
+import json  # noqa: E402
+
+from lpr.experiments import (NDT_DEFAULTS, full_params, git_commit, ndt_hash,  # noqa: E402
+                             upgrade_ndt_config, write_json)
 from lpr.ndt_g import ndt_cells, to_official_format  # noqa: E402
 from lpr.preprocess import preprocess  # noqa: E402
 
@@ -70,6 +73,12 @@ def main():
     os.makedirs(os.path.join(ARGS.out_dir, ARGS.seq), exist_ok=True)
     params = full_params(NDT_DEFAULTS, {k: getattr(ARGS, k) for k in NDT_DEFAULTS})
     cfg_path = os.path.join(ARGS.out_dir, "config.json")
+    cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else None
+    if cfg is not None:
+        cfg, _ = upgrade_ndt_config(cfg)
+        if cfg["params_hash"] != ndt_hash(params):
+            raise SystemExit(f"{ARGS.out_dir} holds a variant with other parameters "
+                             f"({cfg['params_hash']} != {ndt_hash(params)}); use another out_dir")
     started = datetime.datetime.now().isoformat(timespec="seconds")
     n = kitti.num_frames(ARGS.kitti_root, ARGS.seq)
     idxs = list(range(n if ARGS.first is None else min(n, ARGS.first)))
@@ -94,10 +103,9 @@ def main():
                 f.flush()
     import pandas as pd
     st = pd.read_csv(stats_path)
-    write_json(cfg_path, {
-        "variant": ARGS.variant,
-        "params": params,
-        "params_hash": ndt_hash(params),
+    cfg = cfg or {"variant": ARGS.variant, "params": params, "params_hash": ndt_hash(params),
+                  "seqs": {}}
+    cfg.setdefault("seqs", {})[ARGS.seq] = {
         "code_commit": git_commit(os.path.join(os.path.dirname(__file__), "..")),
         "started": started,
         "finished": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -105,7 +113,8 @@ def main():
         "stats_mean": st[["n_raw", "n_points", "voxel", "cells_before_removal", "removed",
                           "padded", "seconds"]].mean().round(4).to_dict(),
         "padded_scans": int((st["padded"] > 0).sum()),
-    })
+    }
+    write_json(cfg_path, cfg)
     print("done:", os.path.join(ARGS.out_dir, ARGS.seq), "| config:", cfg_path)
 
 

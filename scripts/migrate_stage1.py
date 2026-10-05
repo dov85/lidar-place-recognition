@@ -74,8 +74,9 @@ def main():
         stats_mean = st[["n_raw", "n_points", "voxel", "cells_before_removal", "removed",
                          "padded", "seconds"]].mean().round(4).to_dict()
     ndt_cfg = {"variant": variant, "params": ndt_params, "params_hash": ndt_hash(ndt_params),
-               "code_commit": STAGE1_COMMIT, "started": STAGE1_DATE,
-               "stats_mean": stats_mean, "migrated": True}
+               "seqs": {"00": {"code_commit": STAGE1_COMMIT, "started": STAGE1_DATE,
+                               "stats_mean": stats_mean}},
+               "migrated": True}
     write_json(os.path.join(vdir, "config.json"), ndt_cfg)
 
     metrics = pd.read_csv(os.path.join(rdir, "metrics.csv")).drop_duplicates("epoch", keep="last")
