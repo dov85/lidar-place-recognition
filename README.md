@@ -128,7 +128,9 @@ cells. From the authors (D. Adolfsson, personal communication, Sept. 2026): the 
 - coordinates are divided by 40 m (means in [-1, 1]); the official loader multiplies covariances by 1000.
 
 Also note: in the official code `convariance_transform = False`, so the T-Net transform is applied
-to the means only, not propagated to the covariances as described in the paper.
+to the means only, not propagated to the covariances as described in the paper. The training
+parameter `cov_transform=True` turns the official switch on (Σ' = TᵀΣT, the same transform as the means);
+`eval_ndt_kitti.py` takes the setting from the run's `config.json`.
 
 ## Tests without KITTI
 

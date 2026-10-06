@@ -82,7 +82,13 @@ TRAIN_DEFAULTS = dict(
     hard_neg_after_epoch=5,
     amp=True,
     seed=0,
+    cov_transform=False,  # official code: False (T-Net applied to the cell means only);
+                          # True = also T^T Sigma T on the covariances, as in the paper
 )
+
+# Parameters added after runs already existed: left out of the run hash while they have
+# these values, so the existing runs keep their names (see run_hash).
+HASH_OMIT_IF = {"ndt": {"cov_transform": False}, "bev": {}}
 
 
 def _hash(params):
@@ -205,7 +211,9 @@ def resolve_run(drive, train_params, ndt_variant, tag="", method="ndt"):
 
 
 def run_hash(train_params_full, variant, method="ndt"):
-    return _hash({"train": train_params_full, METHODS[method][3]: variant})
+    omit = HASH_OMIT_IF[method]
+    p = {k: v for k, v in train_params_full.items() if not (k in omit and v == omit[k])}
+    return _hash({"train": p, METHODS[method][3]: variant})
 
 
 def ndt_hash(ndt_params_full):

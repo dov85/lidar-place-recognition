@@ -15,7 +15,7 @@ import re
 import pandas as pd
 
 KEY_PARAMS = ["lr", "epochs", "negatives", "positives", "margin", "margin1", "margin2", "batch",
-              "pos_thr", "neg_thr", "hard_neg_after_epoch", "rot_aug", "amp", "seed"]
+              "pos_thr", "neg_thr", "hard_neg_after_epoch", "rot_aug", "cov_transform", "amp", "seed"]
 KEY_PRE = {"ndt": ["crop", "half_size", "ground", "radius", "over", "min_pts"],
            "bev": ["half_size", "voxel", "res", "max_count", "ground"]}
 

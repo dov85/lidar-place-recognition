@@ -72,6 +72,9 @@ def parse():
     ap.add_argument("--eval_split", type=int, default=None, help="override split (tests)")
     ap.add_argument("--eval_gap", type=int, default=kitti.QUERY_GAP, help="with --eval_split")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cov_transform", action="store_true",
+                    help="T-Net also transforms the covariances (T^T Sigma T), as in the paper; "
+                         "the official code leaves this off")
     ap.add_argument("--ndt_variant", default="", help="name of the NDT variant (recorded)")
     return ap.parse_args()
 
@@ -217,6 +220,7 @@ def main():
     queries = lp.get_queries_dict(args.train_pickle)
     model = official_model.NDTNetVlad(num_points=NUM_CELLS, output_dim=DESC_DIM,
                                       emb_dims=1024, layer_number=3).to(DEVICE)
+    model.Transformer.convariance_transform = args.cov_transform  # official switch, off by default
     model_cache["model"] = model
     opt = torch.optim.Adam(model.parameters(), args.lr)
     sched = torch.optim.lr_scheduler.MultiStepLR(opt, milestones=args.milestones, gamma=0.1)

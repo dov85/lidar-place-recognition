@@ -37,6 +37,8 @@ def main():
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--split", type=int, default=None, help="override the split point")
     ap.add_argument("--gap", type=int, default=kitti.QUERY_GAP)
+    ap.add_argument("--cov_transform", choices=["auto", "on", "off"], default="auto",
+                    help="auto: as in config.json next to the checkpoint (the run's setting)")
     args = ap.parse_args()
     cfg.DATASET_FOLDER = args.ndt_dir
 
@@ -45,6 +47,12 @@ def main():
     ck = torch.load(args.ckpt, map_location=DEVICE, weights_only=False)
     model.load_state_dict(ck.get("model", ck.get("state_dict", ck)))
     model.eval()
+    cov = args.cov_transform == "on"
+    if args.cov_transform == "auto":
+        run_cfg = os.path.join(os.path.dirname(os.path.abspath(args.ckpt)), "config.json")
+        if os.path.exists(run_cfg):
+            cov = bool(json.load(open(run_cfg)).get("params", {}).get("cov_transform", False))
+    model.Transformer.convariance_transform = cov
 
     n = len(glob.glob(os.path.join(args.ndt_dir, args.seq, "*.bin")))
     files = [os.path.join(args.seq, f"{i:06d}.bin") for i in range(n)]
@@ -64,7 +72,7 @@ def main():
         db, q = np.arange(args.split), np.arange(args.split + args.gap, n)
     r = recall(desc[db], desc[q], xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
     top1 = r.pop("top1_indices")
-    r.update(seq=args.seq, ckpt=args.ckpt, network_seconds_per_scan=sec)
+    r.update(seq=args.seq, ckpt=args.ckpt, cov_transform=cov, network_seconds_per_scan=sec)
     print(json.dumps(r, indent=1))
     if args.out:
         with open(args.out, "w") as f:
