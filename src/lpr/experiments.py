@@ -139,8 +139,16 @@ def full_params(defaults, params):
     return out
 
 
-def _new_name(tag, h):
+def _new_name(tag, h, is_default):
+    """<date>_baseline_<hash> for the default parameters; otherwise <date>_<tag>_<hash>
+    with the tag given in the notebook, or <date>_<hash> without one. "baseline" is
+    reserved for the defaults, so a changed experiment never gets that name."""
     date = datetime.date.today().isoformat()
+    if is_default:
+        tag = "baseline"
+    elif tag == "baseline":
+        print('note: "baseline" is only used for the default parameters; naming this one by date and hash')
+        tag = ""
     return f"{date}_{tag}_{h}" if tag else f"{date}_{h}"
 
 
@@ -173,7 +181,8 @@ def resolve_ndt_variant(drive, params, tag=""):
 
 def resolve_variant(drive, method, params, tag=""):
     """Existing variant with exactly these parameters, or a new name for them."""
-    p = full_params(method_defaults(method)[0], params)
+    defaults = method_defaults(method)[0]
+    p = full_params(defaults, params)
     h = _hash(p)
     for cfg_path in sorted(glob.glob(os.path.join(drive, method, "*", "config.json"))):
         cfg = _read(cfg_path)
@@ -184,7 +193,7 @@ def resolve_variant(drive, method, params, tag=""):
         if cfg and cfg.get("params_hash") == h:
             name = os.path.basename(os.path.dirname(cfg_path))
             return name, p, True
-    return _new_name(tag, h), p, False
+    return _new_name(tag, h, p == full_params(defaults, {})), p, False
 
 
 def resolve_run(drive, train_params, ndt_variant, tag="", method="ndt"):
@@ -195,7 +204,8 @@ def resolve_run(drive, train_params, ndt_variant, tag="", method="ndt"):
                       (to repeat it on purpose, change the seed);
     state "new": nothing with these parameters yet.
     """
-    p = full_params(method_defaults(method)[1], train_params)
+    defaults = method_defaults(method)[1]
+    p = full_params(defaults, train_params)
     h = run_hash(p, ndt_variant, method)
     finished_twin = None
     for cfg_path in sorted(glob.glob(os.path.join(drive, "runs", method, "*", "config.json"))):
@@ -207,7 +217,7 @@ def resolve_run(drive, train_params, ndt_variant, tag="", method="ndt"):
             finished_twin = name
     if finished_twin:
         return finished_twin, p, "finished"
-    return _new_name(tag, h), p, "new"
+    return _new_name(tag, h, p == full_params(defaults, {})), p, "new"
 
 
 def run_hash(train_params_full, variant, method="ndt"):

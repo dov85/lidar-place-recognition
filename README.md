@@ -53,7 +53,8 @@ MyDrive/lpr/runs_summary.csv            one row per run, column "method" (script
 Older Drive folders (`runs/<run>`, `analysis/heading/<run>`) are moved by `scripts/migrate_layout.py`
 (cell 2b of both notebooks).
 
-Names are `<date>_<tag>_<hash of the parameters>`. The same parameters always map to the same folder:
+Names are `<date>_baseline_<hash>` for the default parameters; any other variant or run is
+`<date>_<tag>_<hash>` with the tag set in cell 1, or `<date>_<hash>` when the tag is empty. The same parameters always map to the same folder:
 an NDT variant is never built twice, an unfinished run resumes after a disconnect, and a finished run is
 not trained again (change the seed to repeat it). `train_ndt_kitti.py` refuses to write into a run folder
 that holds different parameters.
