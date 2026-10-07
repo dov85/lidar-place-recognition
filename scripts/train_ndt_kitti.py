@@ -40,6 +40,7 @@ from sklearn.neighbors import KDTree  # noqa: E402
 
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
+from lpr.rotation import rotate_cells  # noqa: E402
 from lpr.experiments import TRAIN_DEFAULTS, full_params, git_commit, run_hash, write_json  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -72,6 +73,9 @@ def parse():
     ap.add_argument("--eval_split", type=int, default=None, help="override split (tests)")
     ap.add_argument("--eval_gap", type=int, default=kitti.QUERY_GAP, help="with --eval_split")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--rot_aug", action="store_true",
+                    help="rotate every training cloud (query, positives, negatives) about z by its "
+                         "own random angle in [0, 360)")
     ap.add_argument("--cov_transform", action="store_true",
                     help="T-Net also transforms the covariances (T^T Sigma T), as in the paper; "
                          "the official code leaves this off")
@@ -98,6 +102,12 @@ def load_tuple_batch(queries, keys, args, latent):
                                hard_neg=hard, other_neg=True)
         if t[3].shape[0] != NUM_CELLS:
             return None
+        if args.rot_aug:   # one random angle per cloud
+            q, p, n, o = t
+            t = (rotate_cells(q, np.random.uniform(0, 360)),
+                 rotate_cells(p, np.random.uniform(0, 360, len(p))),
+                 rotate_cells(n, np.random.uniform(0, 360, len(n))),
+                 rotate_cells(o, np.random.uniform(0, 360)))
         tuples.append(t)
     return tuples
 

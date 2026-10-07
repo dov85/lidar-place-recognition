@@ -62,7 +62,10 @@ Older Drive folders are moved into this layout by `scripts/migrate_layout.py` (r
 A complete evaluation with the same parameters and checkpoint is not repeated. Types so far:
 `seqs_heading` (recall on 00, 02, 05, 06, 08 and Recall@1 per heading group, both methods) and `tnet`
 (NDT-Transformer: scans rotated about the vertical axis; how far the T-Net is from the identity, whether it
-follows the rotation, and how far the descriptor moves; `scripts/tnet_check.py`). A new type is an entry in
+follows the rotation, and how far the descriptor moves; `scripts/tnet_check.py`) and `compass` (both methods,
+no retraining: every scan is rotated about z by its heading from the ground-truth pose, so map and queries
+share one orientation, and each query gets a compass error drawn from N(0, sigma^2) for sigma in 0, 2, 5,
+10, 20, 45 degrees; NDT cells are rotated exactly, BEV images are rotated as images). A new type is an entry in
 `EVAL_TYPES` plus a function in `scripts/evaluate.py`.
 
 Names are `<date>_baseline_<hash>` for the default parameters; any other variant or run is
@@ -144,6 +147,8 @@ Also note: in the official code `convariance_transform = False`, so the T-Net tr
 to the means only, not propagated to the covariances as described in the paper. The training
 parameter `cov_transform=True` turns the official switch on (Σ' = TᵀΣT, the same transform as the means);
 `eval_ndt_kitti.py` takes the setting from the run's `config.json`.
+`rot_aug=True` rotates every training cloud (query, each positive and negative) about z by its own random
+angle in [0, 360): means R m, covariances R S R^T.
 
 ## Tests without KITTI
 

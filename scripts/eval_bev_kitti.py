@@ -14,6 +14,7 @@ import os
 import sys
 import time
 
+import cv2
 import numpy as np
 import torch
 
@@ -22,6 +23,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 from lpr import bevplace as bp  # noqa: E402
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
+from lpr.rotation import rotate_bev  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,6 +38,13 @@ def main():
     ap.add_argument("--official", default=None, help="third_party/BEVPlace2")
     ap.add_argument("--batch", type=int, default=32, help="images per forward pass (memory only)")
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--yaw_db", default=None,
+                    help="compass test: .npy with one angle (deg) per frame; database frames are "
+                         "rotated about z by it")
+    ap.add_argument("--yaw_q", nargs="+", default=None,
+                    help="compass test: .npy files with one angle per frame for the queries; one "
+                         "result per file, written to the matching --outs entry")
+    ap.add_argument("--outs", nargs="+", default=None)
     args = ap.parse_args()
 
     model = bp.build_model(args.official).to(DEVICE)
@@ -44,6 +53,8 @@ def main():
 
     paths = bp.image_paths(args.bev_dir, args.seq)
     n = len(paths)
+    if args.yaw_q:
+        return compass(args, model, paths, n)
     t0 = time.time()
     desc = bp.infer(model, bp.InferDataset(paths), DEVICE, batch=args.batch, workers=args.workers)
     sec = (time.time() - t0) / n
@@ -58,6 +69,41 @@ def main():
             json.dump(r, f, indent=1)
         np.savez(os.path.splitext(args.out)[0] + "_matches.npz", query=q, top1=top1,
                  descriptors=desc)
+
+
+class RotatedImages(bp.InferDataset):
+    """Evaluation images rotated by one angle (deg) each, like the points rotated about z."""
+
+    def __init__(self, img_paths, angles):
+        super().__init__(img_paths)
+        self.angles = angles
+
+    def __getitem__(self, index):
+        img = rotate_bev(cv2.imread(self.imgs_path[index], 0), self.angles[index])
+        img = img.astype(np.float32) / 256
+        return img[np.newaxis].repeat(3, 0), index
+
+
+def compass(args, model, paths, n):
+    """Database frames rotated by --yaw_db, queries by each --yaw_q; one result per --outs."""
+    xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
+    db, q = kitti.split_indices(args.seq, n)
+    yaw_db = np.load(args.yaw_db) if args.yaw_db else np.zeros(n)
+
+    def desc(idx, angles):
+        ds = RotatedImages([paths[i] for i in idx], angles[idx])
+        return bp.infer(model, ds, DEVICE, batch=args.batch, workers=args.workers)
+
+    d_db = desc(db, yaw_db)
+    for yq, out in zip(args.yaw_q, args.outs):
+        d_q = desc(q, np.load(yq))
+        r = recall(d_db, d_q, xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
+        top1 = r.pop("top1_indices")
+        r.update(seq=args.seq, ckpt=args.ckpt, method="bev", yaw_db=args.yaw_db, yaw_q=yq)
+        with open(out, "w") as f:
+            json.dump(r, f, indent=1)
+        np.savez(os.path.splitext(out)[0] + "_matches.npz", query=q, top1=top1)
+        print(os.path.basename(os.path.dirname(out)), f"R@1 {r['R@1']:.2f}", flush=True)
 
 
 if __name__ == "__main__":

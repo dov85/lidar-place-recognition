@@ -27,6 +27,12 @@ EVAL_TYPES = {
     # distance of T from the identity, whether T follows the rotation, descriptor drift.
     "tnet": dict(methods=["ndt"],
                  params=dict(seq="08", n_scans=200, angles=[0, 15, 30, 45, 60, 90, 120, 150, 180])),
+    # Compass, no retraining: every scan rotated about z by its heading from the ground-truth
+    # pose, so map and queries share one orientation; each query also gets a compass error
+    # drawn from N(0, sigma^2), for each sigma (degrees). Recall per sequence and sigma, and
+    # per heading group (relative to the true headings).
+    "compass": dict(methods=["ndt", "bev"],
+                    params=dict(seqs=ALL_SEQS, sigma_deg=[0, 2, 5, 10, 20, 45], seed=0)),
 }
 
 

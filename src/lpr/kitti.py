@@ -44,3 +44,23 @@ def split_indices(seq, n_frames):
     db = np.arange(0, split)
     q = np.arange(split + QUERY_GAP, n_frames)
     return db, q
+
+
+def velo_to_cam_rotation(kitti_root, seq):
+    """Rotation of the Velodyne frame into the left camera frame (calib.txt "Tr");
+    the nominal axes (x forward, y left, z up -> camera z, -x, -y) if calib.txt is missing."""
+    p = os.path.join(kitti_root, "sequences", seq, "calib.txt")
+    if os.path.exists(p):
+        for line in open(p):
+            if line.startswith("Tr:"):
+                return np.array(line.split()[1:13], dtype=float).reshape(3, 4)[:, :3]
+    return np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
+
+
+def velo_yaw_deg(kitti_root, seq):
+    """Heading of every frame's Velodyne frame about its z axis, relative to frame 0 (degrees).
+    Rotating a scan by +yaw about z expresses it in the orientation of frame 0 (a "compass")."""
+    R_cv = velo_to_cam_rotation(kitti_root, seq)
+    Rw = load_poses(kitti_root, seq)[:, :, :3]
+    R = R_cv.T @ Rw @ R_cv
+    return np.degrees(np.arctan2(R[:, 1, 0], R[:, 0, 0]))

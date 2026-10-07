@@ -23,6 +23,7 @@ import models.NDTNetVlad as official_model  # noqa: E402
 
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
+from lpr.rotation import rotate_cells  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,6 +38,13 @@ def main():
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--split", type=int, default=None, help="override the split point")
     ap.add_argument("--gap", type=int, default=kitti.QUERY_GAP)
+    ap.add_argument("--yaw_db", default=None,
+                    help="compass test: .npy with one angle (deg) per frame; database frames are "
+                         "rotated about z by it")
+    ap.add_argument("--yaw_q", nargs="+", default=None,
+                    help="compass test: .npy files with one angle per frame for the queries; one "
+                         "result per file, written to the matching --outs entry")
+    ap.add_argument("--outs", nargs="+", default=None)
     ap.add_argument("--cov_transform", choices=["auto", "on", "off"], default="auto",
                     help="auto: as in config.json next to the checkpoint (the run's setting)")
     args = ap.parse_args()
@@ -56,6 +64,8 @@ def main():
 
     n = len(glob.glob(os.path.join(args.ndt_dir, args.seq, "*.bin")))
     files = [os.path.join(args.seq, f"{i:06d}.bin") for i in range(n)]
+    if args.yaw_q:
+        return compass(args, model, files, n, cov)
     t0 = time.time()
     desc = []
     with torch.no_grad():
@@ -79,6 +89,35 @@ def main():
             json.dump(r, f, indent=1)
         np.savez(os.path.splitext(args.out)[0] + "_matches.npz", query=q, top1=top1,
                  descriptors=desc)
+
+
+@torch.no_grad()
+def descriptors(model, files, idx, angles, batch):
+    out = []
+    for s in range(0, len(idx), batch):
+        b = idx[s:s + batch]
+        x = lp.load_pc_files([files[i] for i in b])
+        if angles is not None:
+            x = rotate_cells(x, angles[b])
+        out.append(model(torch.from_numpy(x).float().unsqueeze(1).to(DEVICE)).cpu().numpy())
+    return np.concatenate(out)
+
+
+def compass(args, model, files, n, cov):
+    """Database frames rotated by --yaw_db, queries by each --yaw_q; one result per --outs."""
+    xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
+    db, q = kitti.split_indices(args.seq, n)
+    yaw_db = np.load(args.yaw_db) if args.yaw_db else None
+    d_db = descriptors(model, files, db, yaw_db, args.batch)
+    for yq, out in zip(args.yaw_q, args.outs):
+        d_q = descriptors(model, files, q, np.load(yq), args.batch)
+        r = recall(d_db, d_q, xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
+        top1 = r.pop("top1_indices")
+        r.update(seq=args.seq, ckpt=args.ckpt, cov_transform=cov, yaw_db=args.yaw_db, yaw_q=yq)
+        with open(out, "w") as f:
+            json.dump(r, f, indent=1)
+        np.savez(os.path.splitext(out)[0] + "_matches.npz", query=q, top1=top1)
+        print(os.path.basename(os.path.dirname(out)), f"R@1 {r['R@1']:.2f}", flush=True)
 
 
 if __name__ == "__main__":

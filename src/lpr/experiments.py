@@ -84,11 +84,13 @@ TRAIN_DEFAULTS = dict(
     seed=0,
     cov_transform=False,  # official code: False (T-Net applied to the cell means only);
                           # True = also T^T Sigma T on the covariances, as in the paper
+    rot_aug=False,        # True: every training cloud rotated about z by its own random angle
+                          # (0-360 deg; means R m, covariances R S R^T)
 )
 
 # Parameters added after runs already existed: left out of the run hash while they have
 # these values, so the existing runs keep their names (see run_hash).
-HASH_OMIT_IF = {"ndt": {"cov_transform": False}, "bev": {}}
+HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False}, "bev": {}}
 
 
 def _hash(params):
