@@ -43,15 +43,27 @@ Results are kept on Google Drive, one folder per method:
 ```
 MyDrive/lpr/ndt/<variant>/              config.json, cells_<seq>.tar, stats_<seq>.csv, preview_<seq>.png
 MyDrive/lpr/bev/<variant>/              config.json, imgs_<seq>.tar, stats_<seq>.csv
-MyDrive/lpr/runs/ndt/<run>/             config.json, ndt_config.json, metrics.csv, epoch_XX.pth, latest.pth,
-                                        eval_<seq>.json, eval_<seq>_matches.npz
+MyDrive/lpr/runs/ndt/<run>/             config.json, ndt_config.json, metrics.csv, epoch_XX.pth, latest.pth
 MyDrive/lpr/runs/bev/<run>/             same, with bev_config.json
 MyDrive/lpr/runs/bev/official_<variant>/  the authors' checkpoint evaluated on our BEV images
-MyDrive/lpr/analysis/heading/<method>/<run>/  heading analysis of a run
+MyDrive/lpr/runs/<method>/<run>/eval/<eval type>/<checkpoint>/   one evaluation (config.json, summary.csv, ...)
 MyDrive/lpr/runs_summary.csv            one row per run, column "method" (scripts/summarize_runs.py)
+MyDrive/lpr/evals_summary.csv           every evaluation, one row per sequence / angle / ...
 ```
-Older Drive folders (`runs/<run>`, `analysis/heading/<run>`) are moved by `scripts/migrate_layout.py`
-(cell 2b of both notebooks).
+Older Drive folders are moved into this layout by `scripts/migrate_layout.py` (run by both notebooks).
+
+**Running a notebook.** Set cell 1 and use *Runtime -> Run all*. `MODE` says what the run is for:
+`"train"` (data, training of a new run or continuation of an unfinished one, then the evaluations),
+`"eval"` (only the evaluations of an existing run, checkpoint `EVAL_CKPT`, nothing trained or built) or
+`"smoke"` (a short timing / GPU-memory test). Cells that a mode does not need print `skipped`.
+
+**Evaluations.** `EVALS` in cell 1 lists evaluation types from `EVAL_TYPES` in `src/lpr/evals.py`;
+`scripts/evaluate.py` runs one type on one checkpoint and stores it in `<run>/eval/<type>/<checkpoint>/`.
+A complete evaluation with the same parameters and checkpoint is not repeated. Types so far:
+`seqs_heading` (recall on 00, 02, 05, 06, 08 and Recall@1 per heading group, both methods) and `tnet`
+(NDT-Transformer: scans rotated about the vertical axis; how far the T-Net is from the identity, whether it
+follows the rotation, and how far the descriptor moves; `scripts/tnet_check.py`). A new type is an entry in
+`EVAL_TYPES` plus a function in `scripts/evaluate.py`.
 
 Names are `<date>_baseline_<hash>` for the default parameters; any other variant or run is
 `<date>_<tag>_<hash>` with the tag set in cell 1, or `<date>_<hash>` when the tag is empty. The same parameters always map to the same folder:

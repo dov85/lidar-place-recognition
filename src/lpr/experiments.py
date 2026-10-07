@@ -10,8 +10,8 @@ Two methods share the layout: "ndt" (NDT-Transformer, NDT cells) and "bev"
   <drive>/runs/<method>/<run>/config.json  training parameters, variant, status
                      <method>_config.json  copy of the variant's config
                      metrics.csv           per-epoch loss / recall / time
-                     epoch_XX.pth, latest.pth, eval_<seq>.json, eval_<seq>_matches.npz
-  <drive>/analysis/heading/<method>/<run>/ heading analysis of one run
+                     epoch_XX.pth, latest.pth
+  <drive>/runs/<method>/<run>/eval/<type>/<checkpoint>/  one evaluation (src/lpr/evals.py)
   <drive>/runs_summary.csv                 one row per run (column "method")
 
 Names are "<date>_<tag>_<hash>": the hash comes from the parameters, so the same

@@ -1,7 +1,10 @@
 """One table of all runs (NDT-Transformer and BEVPlace++): parameters, variant, results.
 
-Reads <drive>/runs/<method>/*/config.json, metrics.csv and eval_*.json, and writes
-<drive>/runs_summary.csv (open it in Google Sheets or with pandas).
+Reads <drive>/runs/<method>/*/config.json, metrics.csv and eval/<type>/<checkpoint>/, and writes
+  <drive>/runs_summary.csv    one row per run (parameters, training, the latest seqs_heading
+                              evaluation as columns eval_XX_R@1 ...)
+  <drive>/evals_summary.csv   every evaluation: method, run, eval_type, checkpoint, then the
+                              rows of its summary.csv (one per sequence, angle, ...)
 
 Example:
   python scripts/summarize_runs.py --drive /content/drive/MyDrive/lpr
@@ -10,7 +13,6 @@ import argparse
 import glob
 import json
 import os
-import re
 
 import pandas as pd
 
@@ -25,7 +27,7 @@ def main():
     ap.add_argument("--drive", required=True)
     args = ap.parse_args()
 
-    rows = []
+    rows, eval_rows = [], []
     run_dirs = [(m, d) for m in ("ndt", "bev")
                 for d in sorted(glob.glob(os.path.join(args.drive, "runs", m, "*")))]
     for method, run_dir in run_dirs:
@@ -49,15 +51,31 @@ def main():
                         "train_hours": round(m["epoch_minutes"].sum() / 60, 2),
                         "last_R@1": last.get("R@1"), "last_R@1%": last.get("R@1%"),
                         "best_R@1": m["R@1"].max() if "R@1" in m else None})
-        for e in sorted(glob.glob(os.path.join(run_dir, "eval_*.json"))):
-            tag = os.path.splitext(os.path.basename(e))[0]
-            if not re.fullmatch(r"eval_\d\d", tag):   # eval_00.json, eval_08.json, ...
-                continue
-            r = json.load(open(e))
-            row[f"{tag}_R@1"] = r.get("R@1")
-            row[f"{tag}_R@1%"] = r.get("R@1%")
+        for out in sorted(glob.glob(os.path.join(run_dir, "eval", "*", "*", "summary.csv"))):
+            ckpt_dir = os.path.dirname(out)
+            etype, ckpt = os.path.basename(os.path.dirname(ckpt_dir)), os.path.basename(ckpt_dir)
+            try:
+                complete = json.load(open(os.path.join(ckpt_dir, "config.json"))).get("complete")
+            except (OSError, ValueError):
+                complete = None
+            t = pd.read_csv(out, dtype={"seq": str})
+            t.insert(0, "complete", complete)
+            t.insert(0, "checkpoint", ckpt)
+            t.insert(0, "eval_type", etype)
+            t.insert(0, "run", row["run"])
+            t.insert(0, "method", method)
+            eval_rows.append(t)
+            if etype == "seqs_heading" and "seq" in t:   # latest checkpoint wins (sorted names)
+                row["eval_checkpoint"] = ckpt
+                for _, r in t.iterrows():
+                    row[f"eval_{r['seq']}_R@1"] = r["R@1"]
+                    row[f"eval_{r['seq']}_R@1%"] = r["R@1%"]
         rows.append(row)
 
+    if eval_rows:
+        ev = pd.concat(eval_rows, ignore_index=True)
+        ev.to_csv(os.path.join(args.drive, "evals_summary.csv"), index=False)
+        print("->", os.path.join(args.drive, "evals_summary.csv"), f"({len(ev)} rows)")
     df = pd.DataFrame(rows).dropna(axis=1, how="all")
     out = os.path.join(args.drive, "runs_summary.csv")
     df.to_csv(out, index=False)
