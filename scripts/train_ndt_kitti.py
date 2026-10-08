@@ -41,7 +41,8 @@ from sklearn.neighbors import KDTree  # noqa: E402
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
 from lpr.rotation import rotate_cells  # noqa: E402
-from lpr.experiments import TRAIN_DEFAULTS, full_params, git_commit, run_hash, write_json  # noqa: E402
+from lpr.experiments import (TRAIN_DEFAULTS, full_params, git_commit, rot_dir_name,  # noqa: E402
+                             run_hash, write_json)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CELLS = 2000
@@ -76,6 +77,10 @@ def parse():
     ap.add_argument("--rot_aug", action="store_true",
                     help="rotate every training cloud (query, positives, negatives) about z by its "
                          "own random angle in [0, 360)")
+    ap.add_argument("--rot_points", type=int, default=0,
+                    help="N > 0: take every training cloud from one of the N point-rotated copies "
+                         "of its scan (<ndt_dir>/<seq>_rot<N>/, extract_ndt.py --rot_copies N), "
+                         "chosen at random each time")
     ap.add_argument("--cov_transform", action="store_true",
                     help="T-Net also transforms the covariances (T^T Sigma T), as in the paper; "
                          "the official code leaves this off")
@@ -84,6 +89,24 @@ def parse():
 
 
 # ----------------------------------------------------------------------------- data
+_official_load_pc_file = lp.load_pc_file
+ROT_POINTS = {"copies": 0}   # > 0 only while a training tuple is loaded
+
+
+def _load_pc_file(filename, number_points=NUM_CELLS):
+    """Official loader; while ROT_POINTS is active, "<seq>/<idx>.bin" is read from a random
+    point-rotated copy "<seq>_rot<N>/<idx>_<copy>.bin" instead."""
+    n = ROT_POINTS["copies"]
+    if n:
+        seq, name = os.path.split(filename)
+        stem = os.path.splitext(name)[0]
+        filename = os.path.join(rot_dir_name(seq, n), f"{stem}_{np.random.randint(n)}.bin")
+    return _official_load_pc_file(filename, number_points)
+
+
+lp.load_pc_file = _load_pc_file   # load_pc_files and get_query_tuple call it
+
+
 def load_tuple_batch(queries, keys, args, latent):
     """Official get_query_tuple, with the official hard-negative logic of train.py."""
     tuples = []
@@ -98,8 +121,12 @@ def load_tuple_batch(queries, keys, args, latent):
             q_vec = descriptors([entry["query"]], model_cache["model"])[0]
             _, ind = KDTree(latent[cand]).query(q_vec[None], k=min(10, len(cand)))
             hard = np.array(cand)[ind[0]].tolist()
-        t = lp.get_query_tuple(entry, args.positives, args.negatives, queries,
-                               hard_neg=hard, other_neg=True)
+        ROT_POINTS["copies"] = args.rot_points   # training clouds only (not hard mining, eval)
+        try:
+            t = lp.get_query_tuple(entry, args.positives, args.negatives, queries,
+                                   hard_neg=hard, other_neg=True)
+        finally:
+            ROT_POINTS["copies"] = 0
         if t[3].shape[0] != NUM_CELLS:
             return None
         if args.rot_aug:   # one random angle per cloud
@@ -228,6 +255,17 @@ def main():
     cfg.NUM_POINTS = NUM_CELLS
 
     queries = lp.get_queries_dict(args.train_pickle)
+    if args.rot_points:
+        rdir = os.path.join(args.ndt_dir, rot_dir_name(args.seq, args.rot_points))
+        missing = [f"{os.path.splitext(os.path.basename(q['query']))[0]}_{c}.bin"
+                   for q in queries.values() for c in range(args.rot_points)
+                   if not os.path.exists(os.path.join(
+                       rdir, f"{os.path.splitext(os.path.basename(q['query']))[0]}_{c}.bin"))]
+        if missing:
+            raise SystemExit(f"rot_points={args.rot_points}: {len(missing)} copies missing in "
+                             f"{rdir}, e.g. {missing[:3]} (extract_ndt.py --rot_copies "
+                             f"{args.rot_points})")
+        print(f"rot_points: training clouds from {rdir} ({args.rot_points} copies per scan)")
     model = official_model.NDTNetVlad(num_points=NUM_CELLS, output_dim=DESC_DIM,
                                       emb_dims=1024, layer_number=3).to(DEVICE)
     model.Transformer.convariance_transform = args.cov_transform  # official switch, off by default

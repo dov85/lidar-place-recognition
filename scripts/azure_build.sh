@@ -17,6 +17,9 @@
 #   RAW_SEQS   sequences whose raw scans are kept in the blob container
 #              (default: 00 02 05 06 08)
 #   WORK       working folder on the data disk  (default: $HOME/work)
+#   ROT_COPIES ndt only: N > 0 also builds N point-rotated copies of the training frames of
+#              ROT_SEQS (default 00), the training data of rot_points=N (extract_ndt.py
+#              --rot_copies N). To build only the copies: CELL_SEQS="" ROT_COPIES=8 ...
 #
 # Blob layout written by this script:
 #   raw/kitti_seq<seq>_raw.tar             raw scans + poses + calib of one sequence
@@ -24,6 +27,7 @@
 #   bev/<VARIANT>/imgs_<seq>.tar           BEV images of one sequence
 #   <METHOD>/<VARIANT>/stats_<seq>.csv     per-scan statistics
 #   <METHOD>/<VARIANT>/config_azure.json   parameters + per-sequence info (merged into Drive by Colab)
+#   ndt/<VARIANT>/cells_<seq>_rot<N>.tar   point-rotated copies (ROT_COPIES=N), stats_<seq>_rot<N>.csv
 # Raw scans already in the container are reused, so a new variant never downloads KITTI again.
 set -euo pipefail
 
@@ -36,7 +40,11 @@ case "$METHOD" in
 esac
 : "${VARIANT:?set VARIANT to the variant name printed by the notebook, e.g. VARIANT=2026-10-04_baseline_717e81}"
 ARGS="${ARGS:-${NDT_ARGS:-}}"
-CELL_SEQS="${CELL_SEQS:-$DEFAULT_SEQS}"
+CELL_SEQS="${CELL_SEQS-$DEFAULT_SEQS}"   # set but empty = no sequence (e.g. only ROT_COPIES)
+ROT_COPIES="${ROT_COPIES:-0}"
+ROT_SEQS="${ROT_SEQS:-00}"
+if [ "$ROT_COPIES" != 0 ] && [ "$METHOD" != ndt ]; then echo "ROT_COPIES is for METHOD=ndt"; exit 1; fi
+[ "$ROT_COPIES" = 0 ] && ROT_SEQS=""
 RAW_SEQS="${RAW_SEQS:-00 02 05 06 08}"
 WORK="${WORK:-$HOME/work}"
 
@@ -49,7 +57,7 @@ log() { echo "[$(date +%H:%M:%S)] $*"; }
 
 mkdir -p "$WORK"
 exec > >(tee -a "$WORK/build.log") 2>&1
-log "method=$METHOD variant=$VARIANT seqs=[$CELL_SEQS] raw_seqs=[$RAW_SEQS] args=[$ARGS]"
+log "method=$METHOD variant=$VARIANT seqs=[$CELL_SEQS] raw_seqs=[$RAW_SEQS] args=[$ARGS] rot_copies=$ROT_COPIES rot_seqs=[$ROT_SEQS]"
 
 # ---------------------------------------------------------------- tools
 if [ ! -x "$WORK/venv/bin/python" ]; then
@@ -78,7 +86,7 @@ mkdir -p "$KITTI" "$OUT" "$WORK/tmp"
 
 # ---------------------------------------------------------------- raw scans
 have_raw() { [ -d "$KITTI/sequences/$1/velodyne" ] && [ -f "$KITTI/poses/$1.txt" ]; }
-for seq in $RAW_SEQS $CELL_SEQS; do
+for seq in $RAW_SEQS $CELL_SEQS $ROT_SEQS; do
   have_raw "$seq" && continue
   if blob_exists "raw/kitti_seq${seq}_raw.tar"; then
     log "seq $seq: raw scans from the blob container"
@@ -112,11 +120,34 @@ for seq in $CELL_SEQS; do
   log "seq $seq: uploaded"
 done
 
+# ---------------------------------------------------------------- point-rotated copies (ndt)
+for seq in $ROT_SEQS; do
+  sub="${seq}_rot${ROT_COPIES}"
+  if blob_exists "ndt/$VARIANT/cells_$sub.tar"; then
+    log "$sub: already in the blob container, skipping"
+    continue
+  fi
+  log "$sub: extract_ndt --rot_copies $ROT_COPIES (training frames), $(nproc) workers"
+  # shellcheck disable=SC2086
+  "$PY" "$REPO/scripts/extract_ndt.py" --kitti_root "$KITTI" --seq "$seq" --out_dir "$OUT" \
+      --variant "$VARIANT" --workers "$(nproc)" --rot_copies "$ROT_COPIES" $ARGS
+  tar -cf "$WORK/tmp/cells_$sub.tar" -C "$OUT" "$sub" "${sub}_stats.csv" config.json
+  blob_put "$WORK/tmp/cells_$sub.tar" "ndt/$VARIANT/cells_$sub.tar"
+  blob_put "$OUT/${sub}_stats.csv" "ndt/$VARIANT/stats_$sub.csv"
+  blob_put "$OUT/config.json" "ndt/$VARIANT/config_azure.json"
+  rm -f "$WORK/tmp/cells_$sub.tar"
+  log "$sub: uploaded"
+done
+
 log "done. Files of this variant in the blob container:"
 for seq in $CELL_SEQS; do
   for f in "${ARCHIVE}_$seq.tar" "stats_$seq.csv"; do
     if blob_exists "$METHOD/$VARIANT/$f"; then echo "  ok      $METHOD/$VARIANT/$f"; else echo "  MISSING $METHOD/$VARIANT/$f"; fi
   done
+done
+for seq in $ROT_SEQS; do
+  f="cells_${seq}_rot${ROT_COPIES}.tar"
+  if blob_exists "ndt/$VARIANT/$f"; then echo "  ok      ndt/$VARIANT/$f"; else echo "  MISSING ndt/$VARIANT/$f"; fi
 done
 blob_exists "$METHOD/$VARIANT/config_azure.json" && echo "  ok      $METHOD/$VARIANT/config_azure.json"
 df -h "$WORK" | tail -1

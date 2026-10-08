@@ -1,5 +1,4 @@
 """Rotations about the vertical axis of NDT cells and BEV images (augmentation, compass)."""
-import cv2
 import numpy as np
 
 
@@ -27,6 +26,7 @@ def rotate_cells(x, deg):
 def rotate_bev(img, deg):
     """BEV image of lpr.bev / BEVPlace++ (row = -x, column = -y, x up): the image of the
     points rotated by +deg about z is this image rotated by +deg (counter-clockwise)."""
+    import cv2   # only here: the NDT build machines have no OpenCV
     h, w = img.shape[:2]
     mat = cv2.getRotationMatrix2D((w // 2, h // 2), float(deg), 1)
     return cv2.warpAffine(img, mat, (w, h))

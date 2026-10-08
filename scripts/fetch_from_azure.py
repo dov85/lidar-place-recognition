@@ -6,6 +6,8 @@ not on Drive yet, and merges the per-sequence information of config_azure.json i
 variant's config.json (after checking that the parameters are the same). A variant that
 is not on Drive yet (a new one, built on Azure first) gets config_azure.json as its
 config, after checking that the hash in its name matches the parameters.
+With --rot_copies N (ndt): the point-rotated copies cells_<seq>_rot<N>.tar of the given
+sequences instead (azure_build.sh with ROT_COPIES=N).
 
 Example:
   python scripts/fetch_from_azure.py --sas_url "<container SAS URL>" --method ndt \
@@ -20,7 +22,8 @@ import time
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from lpr.experiments import archive_name, upgrade_ndt_config, write_json  # noqa: E402
+from lpr.experiments import (archive_name, rot_archive_name, rot_dir_name,  # noqa: E402
+                             upgrade_ndt_config, write_json)
 
 
 def blob_url(sas_url, path):
@@ -51,6 +54,7 @@ def main():
     ap.add_argument("--seqs", nargs="+", required=True)
     ap.add_argument("--drive", required=True)
     ap.add_argument("--method", default="ndt", choices=["ndt", "bev"])
+    ap.add_argument("--rot_copies", type=int, default=0)
     a = ap.parse_args()
 
     vdir = os.path.join(a.drive, a.method, a.variant)
@@ -73,6 +77,25 @@ def main():
     if az["params_hash"] != cfg["params_hash"]:
         raise SystemExit(f"parameters on Azure ({az['params_hash']}) differ from Drive "
                          f"({cfg['params_hash']}): the Azure run used other NDT_ARGS")
+
+    if a.rot_copies:
+        for seq in a.seqs:
+            sub = rot_dir_name(seq, a.rot_copies)
+            tar = os.path.join(vdir, rot_archive_name(seq, a.rot_copies))
+            if not os.path.exists(tar):
+                print(f"{sub}: downloading")
+                if not download(blob_url(a.sas_url, f"{prefix}/{os.path.basename(tar)}"), tar):
+                    print(f"{sub}: not in the blob container (build it with ROT_COPIES={a.rot_copies})")
+                    continue
+                download(blob_url(a.sas_url, f"{prefix}/stats_{sub}.csv"),
+                         os.path.join(vdir, f"stats_{sub}.csv"))
+            else:
+                print(f"{sub}: already on Drive")
+            if sub in az.get("rot_copies", {}):
+                cfg.setdefault("rot_copies", {})[sub] = dict(az["rot_copies"][sub], built_on="azure")
+        write_json(cfg_path, cfg)
+        print("point-rotated copies in", a.variant + ":", sorted(cfg.get("rot_copies", {})))
+        return
 
     for seq in a.seqs:
         tar = os.path.join(vdir, archive_name(a.method, seq))

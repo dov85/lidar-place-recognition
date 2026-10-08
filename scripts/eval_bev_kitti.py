@@ -45,9 +45,13 @@ def main():
                     help="compass test: .npy files with one angle per frame for the queries; one "
                          "result per file, written to the matching --outs entry")
     ap.add_argument("--outs", nargs="+", default=None)
+    ap.add_argument("--arch", default="auto", choices=["auto", *bp.ARCHS],
+                    help="auto: from the config.json of the checkpoint's run (official: rein)")
     args = ap.parse_args()
 
-    model = bp.build_model(args.official).to(DEVICE)
+    arch = bp.run_arch(args.ckpt) if args.arch == "auto" else args.arch
+    print("network:", arch)
+    model = bp.build_model(args.official, arch).to(DEVICE)
     ck = torch.load(args.ckpt, map_location=DEVICE, weights_only=False)
     model.load_state_dict(ck.get("model", ck.get("state_dict", ck)))
 

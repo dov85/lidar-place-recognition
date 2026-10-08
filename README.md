@@ -111,6 +111,11 @@ parameters also set `ARGS` (the notebook prints the full command in cell 3). Raw
 disk or in the container are reused, never downloaded from KITTI again. `tmux attach -t build` to look again,
 `tail ~/work/build.log` for the log.
 
+Point-rotated training copies for NDT-Transformer (`rot_points=N`): `ROT_COPIES=N` builds N copies of every
+training frame of `ROT_SEQS` (default 00, frames before the split point) whose raw points are rotated about z
+by a random angle before crop, ground removal and cells; `CELL_SEQS=""` builds only these. Notebook 01
+section 4 prints the exact command and copies `cells_00_rot<N>.tar` to Drive.
+
 **In Colab:** notebook 01 section 9 (NDT) or notebook 02 section 4 (BEV) copy the variant to Drive, then evaluate
 every sequence and run the heading analysis (`scripts/heading_analysis.py`: how far the query headings are
 from the map frames at the same place, and Recall@1 for same / crossing / opposite headings).
@@ -131,6 +136,10 @@ from the map frames at the same place, and Recall@1 for same / crossing / opposi
    (`split_forward` in `metrics.csv`; same loss, BatchNorm statistics over 12 images instead of 48).
 4. Evaluation on 00, 02, 05, 06, 08 and the heading analysis, in the same format as NDT-Transformer;
    section 10 of the notebook puts both methods side by side.
+5. Ablation `arch="plain"` (training parameter): the same network with a single rotation (0 deg) in REIN's
+   rotation-equivariant module, i.e. one pass of the same ResNet34 layers, the same (identity) warps and
+   NetVLAD, so no built-in rotation invariance; with `rot_aug=True` or `False`. Same parameters and
+   checkpoint format; the evaluation scripts read `arch` from the run's `config.json`.
 
 ## Design decisions in G (see `src/lpr/ndt_g.py`)
 
@@ -149,6 +158,11 @@ parameter `cov_transform=True` turns the official switch on (Σ' = TᵀΣT, the 
 `eval_ndt_kitti.py` takes the setting from the run's `config.json`.
 `rot_aug=True` rotates every training cloud (query, each positive and negative) about z by its own random
 angle in [0, 360): means R m, covariances R S R^T.
+`rot_points=N` instead takes every training cloud from one of N copies of its scan whose raw points were
+rotated before the cells were built (`extract_ndt.py --rot_copies N`), so the cells themselves differ
+(axis-aligned crop and voxel grid), as when the vehicle really turns. The angle of copy c of scan i is fixed
+by (seed, sequence, i, c) and stored in `stats_<seq>_rot<N>.csv`. Hard-negative mining and evaluation use the
+unrotated cells, as with `rot_aug`. Both can be combined.
 
 ## Tests without KITTI
 

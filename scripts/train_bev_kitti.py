@@ -47,6 +47,8 @@ def parse():
               "margin", "seed"):
         ap.add_argument(f"--{k}", type=type(d[k]), default=d[k])
     ap.add_argument("--no_rot_aug", action="store_true", help="disable the random rotation")
+    ap.add_argument("--arch", default=d["arch"], choices=list(bp.ARCHS),
+                    help="rein (official) or plain (same CNN + NetVLAD, no rotations)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--eval_every", type=int, default=1, help="epochs; 0 = never")
     ap.add_argument("--eval_batch", type=int, default=32,
@@ -116,7 +118,8 @@ def main():
     xyz = kitti.positions(poses)
     train_set = bp.TrainingDataset(paths, poses.reshape(len(poses), 12), args.train_frames,
                                    args.pos_thr, args.neg_thr, args.negatives, args.rot_aug)
-    model = bp.build_model(args.official).to(DEVICE)
+    model = bp.build_model(args.official, args.arch).to(DEVICE)
+    print("network:", args.arch, f"({len(model.rem.angles)} rotation(s) per image)")
     opt = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
 
     latest = os.path.join(args.log_dir, "latest.pth")

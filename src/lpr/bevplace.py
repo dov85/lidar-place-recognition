@@ -35,10 +35,33 @@ def official_dir():
                         "BEVPlace2")
 
 
-def build_model(official=None):
+ARCHS = ("rein", "plain")
+
+
+def build_model(official=None, arch="rein"):
+    """arch "rein": the official network. arch "plain": the same network with a single
+    rotation (0 deg) in its rotation-equivariant module, i.e. one pass of the same CNN, the
+    identity warps of the official code and NetVLAD: no built-in rotation invariance. The
+    parameters (and checkpoint keys) are the same; only the number of rotations differs."""
+    if arch not in ARCHS:
+        raise ValueError(f"arch must be one of {ARCHS}, not {arch!r}")
     sys.path.insert(0, official or official_dir())
     from REIN import REIN  # noqa: E402  (official network)
-    return REIN()
+    model = REIN()
+    if arch == "plain":
+        model.rem.angles = model.rem.angles[:1]   # [0]: identity warp only
+    return model
+
+
+def run_arch(ckpt_path):
+    """arch of the run a checkpoint belongs to (its config.json); "rein" otherwise
+    (e.g. the official checkpoint)."""
+    import json
+    cfg = os.path.join(os.path.dirname(os.path.abspath(ckpt_path)), "config.json")
+    try:
+        return json.load(open(cfg)).get("params", {}).get("arch", "rein")
+    except (OSError, ValueError):
+        return "rein"
 
 
 def image_paths(bev_dir, seq):

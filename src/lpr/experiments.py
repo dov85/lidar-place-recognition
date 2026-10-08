@@ -59,6 +59,9 @@ BEV_TRAIN_DEFAULTS = dict(  # official BEVPlace++ values (main.py, kitti_dataset
     margin=0.3,
     rot_aug=True,          # random 0-360 deg rotation of every training image
     seed=1024,
+    arch="rein",           # "rein": the official network (8 rotations of the image through the
+                           # CNN, max over rotations, NetVLAD); "plain": the same CNN and NetVLAD
+                           # with one pass and no rotations (no built-in rotation invariance)
 )
 
 METHODS = {
@@ -86,11 +89,15 @@ TRAIN_DEFAULTS = dict(
                           # True = also T^T Sigma T on the covariances, as in the paper
     rot_aug=False,        # True: every training cloud rotated about z by its own random angle
                           # (0-360 deg; means R m, covariances R S R^T)
+    rot_points=0,         # N > 0: every training cloud is taken from one of N copies of its scan
+                          # whose raw points were rotated by a random angle before the cells were
+                          # built (cells_<seq>_rot<N>.tar of the variant, built on Azure)
 )
 
 # Parameters added after runs already existed: left out of the run hash while they have
 # these values, so the existing runs keep their names (see run_hash).
-HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False}, "bev": {}}
+HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 0},
+                "bev": {"arch": "rein"}}
 
 
 def _hash(params):
@@ -175,6 +182,15 @@ def method_defaults(method):
 
 def archive_name(method, seq):
     return f"{METHODS[method][2]}_{seq}.tar"
+
+
+def rot_dir_name(seq, copies):
+    """Folder (inside the variant) of the point-rotated copies of one sequence."""
+    return f"{seq}_rot{int(copies)}"
+
+
+def rot_archive_name(seq, copies):
+    return f"cells_{rot_dir_name(seq, copies)}.tar"
 
 
 def resolve_ndt_variant(drive, params, tag=""):
