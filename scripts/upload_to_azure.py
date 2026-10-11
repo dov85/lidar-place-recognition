@@ -25,7 +25,12 @@ def blob_url(sas_url, path, extra=""):
 
 
 def exists(sas_url, path):
-    return requests.head(blob_url(sas_url, path), headers=HEADERS, timeout=60).status_code == 200
+    code = requests.head(blob_url(sas_url, path), headers=HEADERS, timeout=60).status_code
+    if code in (401, 403):
+        raise SystemExit(f"HTTP {code} when reading {path}: the SAS URL is not accepted "
+                         "(expired, mistyped, or without read permission). Create a new one in the "
+                         "Azure portal (container -> Shared access tokens) and update AZURE_SAS.")
+    return code == 200
 
 
 def _put(url, data, headers, tries=5):
@@ -35,6 +40,8 @@ def _put(url, data, headers, tries=5):
             if r.status_code in (200, 201):
                 return
             msg = f"HTTP {r.status_code}: {r.text[:300]}"
+            if 400 <= r.status_code < 500:   # not a network problem: retrying does not help
+                raise SystemExit(f"upload refused, {msg}")
         except requests.RequestException as e:
             msg = str(e)
         print(f"  retry {t + 1}: {msg}", flush=True)
