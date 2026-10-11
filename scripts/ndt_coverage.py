@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti, ndt_check  # noqa: E402
+from lpr.experiments import NDT_DEFAULTS  # noqa: E402
 from lpr.ndt_g import from_official_format  # noqa: E402
 from lpr.preprocess import crop, preprocess  # noqa: E402
 
@@ -63,7 +64,7 @@ def main():
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     A = ap.parse_args()
     cfg = json.load(open(os.path.join(A.ndt_dir, "config.json")))
-    P = cfg["params"]
+    P = {**NDT_DEFAULTS, **cfg.get("params", {})}   # older configs may lack newer keys
     A.variant = cfg.get("variant", os.path.basename(os.path.normpath(A.ndt_dir)))
     n = len([f for f in os.listdir(os.path.join(A.ndt_dir, A.seq)) if f.endswith(".bin")])
     A.preview_idx = set(ndt_check.preview_indices(A.seq, n))
