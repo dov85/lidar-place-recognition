@@ -141,6 +141,22 @@ from the map frames at the same place, and Recall@1 for same / crossing / opposi
    NetVLAD, so no built-in rotation invariance; with `rot_aug=True` or `False`. Same parameters and
    checkpoint format; the evaluation scripts read `arch` from the run's `config.json`.
 
+## Checks of the NDT cells (`src/lpr/ndt_check.py`, notebook 03)
+
+Built into every extraction (`extract_ndt.py`, in Colab and on Azure): for every scan, how well the cells cover
+the points left after crop and ground removal (`cov_0.8`: % of the points within 0.8 m of a cell mean;
+`dense_cov`: % of the 1 m squares with >= 5 points that have a cell; coverage by range; extent of the cells),
+as extra columns of `stats_<seq>.csv` and a summary in `config.json`; and pictures of 10 random scans per
+sequence (the same scans for every variant): before ground removal, after ground removal, cells
+(`<variant>/previews_<seq>/`).
+
+Variants built before that (`2026-10-04_baseline_717e81`): `notebooks/03_ndt_checks.ipynb` uploads the cells
+built in Colab (00) to the blob container and prints the command for the VM,
+`VARIANT=<name> bash scripts/azure_coverage.sh "<SAS URL>"` (`scripts/ndt_coverage.py` on every scan of every
+sequence), then copies the results to `<variant>/coverage/` and shows tables, histograms and the pictures.
+Patchwork++ adapts its thresholds from scan to scan, so these recomputed points can differ slightly (< 1%)
+from the ones the cells were built from.
+
 ## Design decisions in G (see `src/lpr/ndt_g.py`)
 
 From the paper: k = 2000 cells, 0.8 m, binary search on the resolution, removal of redundant

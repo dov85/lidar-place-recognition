@@ -13,6 +13,11 @@ exactly like the unrotated scans (same variant parameters):
 and config.json gets an entry "rot_copies" -> "<seq>_rot<N>". Only the training frames
 (before the BEVPlace++ split point, e.g. 0-2999 of 00) unless --first is given.
 
+Built-in checks (src/lpr/ndt_check.py), for every scan: coverage of the points by the cells
+(columns cov_0.8, dense_cov, ... in the stats file; per-sequence summary in config.json),
+and for 10 random scans of the sequence (the same ones for every variant) a picture before
+ground removal / after ground removal / cells in <out_dir>/<seq>_previews/<idx>.png.
+
 Example:
   python scripts/extract_ndt.py --kitti_root /content/kitti --seq 00 --out_dir /content/ndt
 """
@@ -33,8 +38,9 @@ import json  # noqa: E402
 from lpr.experiments import (NDT_DEFAULTS, full_params, git_commit, ndt_hash,  # noqa: E402
                              upgrade_ndt_config, write_json)
 from lpr.experiments import rot_dir_name  # noqa: E402
+from lpr import ndt_check  # noqa: E402
 from lpr.ndt_g import ndt_cells, to_official_format  # noqa: E402
-from lpr.preprocess import preprocess  # noqa: E402
+from lpr.preprocess import crop, preprocess  # noqa: E402
 from lpr.rotation import rz  # noqa: E402
 
 ARGS = None
@@ -71,6 +77,13 @@ def process(item):
     info.update(idx=idx, n_raw=len(scan), seconds=round(time.time() - t0, 3))
     if copy is not None:
         info.update(copy=copy, angle_deg=round(angle, 4))
+    # built-in checks: coverage of every scan, pictures of a few
+    info.update(ndt_check.coverage_metrics(pts, means))
+    if copy is None and idx in ARGS.preview_idx:
+        ndt_check.save_preview(
+            os.path.join(ARGS.out_dir, f"{ARGS.seq}_previews", f"{idx:06d}.png"),
+            crop(scan, ARGS.crop, ARGS.half_size), pts, means, covs, ARGS.half_size,
+            title=f"{ARGS.variant}  |  scan {ARGS.seq}/{idx:06d}", metrics=info)
     return info
 
 
@@ -118,12 +131,19 @@ def main():
     if rot and ARGS.first is None:   # copies are training data: the training frames only
         ARGS.first = kitti.SPLIT_POINTS[ARGS.seq]
     idxs = list(range(n if ARGS.first is None else min(n, ARGS.first)))
+    ARGS.preview_idx = set() if rot else set(ndt_check.preview_indices(ARGS.seq, n))
+    if ARGS.preview_idx:
+        os.makedirs(os.path.join(ARGS.out_dir, f"{ARGS.seq}_previews"), exist_ok=True)
     if rot:
         idxs = [(i, c) for i in idxs for c in range(ARGS.rot_copies)]
     stats_path = os.path.join(ARGS.out_dir, f"{sub}_stats.csv")
     new_file = not os.path.exists(stats_path)
     fields = ["idx", "n_raw", "n_points", "voxel", "cells_before_removal", "removed",
-              "padded", "seconds"] + (["copy", "angle_deg"] if rot else [])
+              "padded", "seconds"] + (["copy", "angle_deg"] if rot else []) \
+        + ndt_check.COVERAGE_FIELDS
+    if not new_file:   # resuming: keep the columns of the existing file
+        with open(stats_path) as f:
+            fields = next(csv.reader(f), fields) or fields
     t0 = time.time()
     done = 0
     with open(stats_path, "a", newline="") as f, Pool(ARGS.workers) as pool:
@@ -133,7 +153,7 @@ def main():
         for info in pool.imap_unordered(process, idxs, chunksize=4):
             done += 1
             if info is not None:
-                w.writerow({k: info[k] for k in fields})
+                w.writerow({k: info.get(k, "") for k in fields})
             if done % 200 == 0 or done == len(idxs):
                 el = time.time() - t0
                 print(f"{done}/{len(idxs)} scans, {el / 60:.1f} min elapsed, "
@@ -153,6 +173,11 @@ def main():
                           "padded", "seconds"]].mean().round(4).to_dict(),
         "padded_scans": int((st["padded"] > 0).sum()),
     }
+    if "cov_0.8" in st:
+        entry[sub]["coverage"] = ndt_check.summarize(st)
+        if not rot:
+            entry[sub]["previews"] = f"{ARGS.seq}_previews/ ({len(ARGS.preview_idx)} scans: "\
+                f"{sorted(ARGS.preview_idx)})"
     if rot:
         entry[sub].update(seq=ARGS.seq, copies=ARGS.rot_copies, rot_seed=ARGS.rot_seed,
                           n_files=int(len(st)), n_scans=int(st["idx"].nunique()))

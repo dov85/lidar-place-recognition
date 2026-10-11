@@ -25,7 +25,8 @@
 #   raw/kitti_seq<seq>_raw.tar             raw scans + poses + calib of one sequence
 #   ndt/<VARIANT>/cells_<seq>.tar          NDT cells of one sequence
 #   bev/<VARIANT>/imgs_<seq>.tar           BEV images of one sequence
-#   <METHOD>/<VARIANT>/stats_<seq>.csv     per-scan statistics
+#   <METHOD>/<VARIANT>/stats_<seq>.csv     per-scan statistics (ndt: with the coverage checks)
+#   ndt/<VARIANT>/previews_<seq>.tar       ndt: pictures of 10 scans (before / after ground removal, cells)
 #   <METHOD>/<VARIANT>/config_azure.json   parameters + per-sequence info (merged into Drive by Colab)
 #   ndt/<VARIANT>/cells_<seq>_rot<N>.tar   point-rotated copies (ROT_COPIES=N), stats_<seq>_rot<N>.csv
 # Raw scans already in the container are reused, so a new variant never downloads KITTI again.
@@ -114,6 +115,11 @@ for seq in $CELL_SEQS; do
       --variant "$VARIANT" --workers "$(nproc)" $ARGS
   tar -cf "$WORK/tmp/${ARCHIVE}_$seq.tar" -C "$OUT" "$seq" "${seq}_stats.csv" config.json
   blob_put "$WORK/tmp/${ARCHIVE}_$seq.tar" "$METHOD/$VARIANT/${ARCHIVE}_$seq.tar"
+  if [ -d "$OUT/${seq}_previews" ]; then   # ndt: pictures of the built-in checks
+    tar -cf "$WORK/tmp/previews_$seq.tar" -C "$OUT" "${seq}_previews"
+    blob_put "$WORK/tmp/previews_$seq.tar" "$METHOD/$VARIANT/previews_$seq.tar"
+    rm -f "$WORK/tmp/previews_$seq.tar"
+  fi
   blob_put "$OUT/${seq}_stats.csv" "$METHOD/$VARIANT/stats_$seq.csv"
   blob_put "$OUT/config.json" "$METHOD/$VARIANT/config_azure.json"
   rm -f "$WORK/tmp/${ARCHIVE}_$seq.tar"
