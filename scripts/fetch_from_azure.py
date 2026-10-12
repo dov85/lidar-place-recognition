@@ -37,12 +37,26 @@ def blob_url(sas_url, path):
     return f"{base.rstrip('/')}/{path}?{token}"
 
 
+SAS_HELP = ("the SAS URL is not accepted (expired, mistyped, or without the needed permission). "
+            "Create a new one in the Azure portal (container -> Shared access tokens; the portal "
+            "proposes an expiry of a few hours: set it weeks ahead) and update AZURE_SAS.")
+
+
 def download(url, dest):
+    """Never prints the URL: it contains the SAS token."""
     t0 = time.time()
-    with requests.get(url, stream=True, timeout=60) as r:
+    path = url.split("?", 1)[0].split(".net/", 1)[-1]
+    try:
+        r = requests.get(url, stream=True, timeout=60)
+    except requests.RequestException as e:
+        raise SystemExit(f"{path}: network error ({type(e).__name__})") from None
+    with r:
         if r.status_code == 404:
             return False
-        r.raise_for_status()
+        if r.status_code in (401, 403):
+            raise SystemExit(f"HTTP {r.status_code} for {path}: {SAS_HELP}")
+        if r.status_code >= 400:
+            raise SystemExit(f"HTTP {r.status_code} for {path}")
         tmp = dest + ".part"
         with open(tmp, "wb") as f:
             for chunk in r.iter_content(chunk_size=8 << 20):
