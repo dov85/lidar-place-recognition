@@ -165,6 +165,26 @@ class TripletLoss(nn.Module):
         return F.relu(pos_dist - neg_dist + self.margin)
 
 
+METRICS_FIELDS = ["epoch", "train_loss", "epoch_minutes", "cache_minutes", "split_forward",
+                  "hard_mining", "R@1", "R@5", "R@1%", "n_queries_with_positive"]
+
+
+def append_metrics(path, row):
+    """One row of metrics.csv; a file written before a column existed keeps its header."""
+    import csv
+    if os.path.exists(path):
+        with open(path, newline="") as f:
+            fields = next(csv.reader(f), None) or METRICS_FIELDS
+    else:
+        fields = METRICS_FIELDS
+    new = not os.path.exists(path)
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        if new:
+            w.writeheader()
+        w.writerow(row)
+
+
 @torch.no_grad()
 def infer(model, dataset, device, batch=32, workers=2, amp=False):
     model.eval()

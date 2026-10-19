@@ -164,6 +164,11 @@ To compare the representations (NDT cells vs BEV image) with everything else equ
   every training sample (`rot_aug`), optionally the point-rotated copies (`rot_points`). Mixed precision
   (`amp=True`) for GPU memory; if a batch does not fit, the tuples go one by one with accumulated gradients
   (as for BEV).
+  `hard_neg_after_epoch=N` (also for BEV runs; 0 = the official recipe): random negatives in epochs 1..N and
+  hard mining from epoch N+1, as NDT-Transformer does. A network trained from scratch can collapse when it is
+  pushed away from the hardest negatives from the first step (BEVPlace++ starts from ImageNet weights).
+  `metrics.csv` row 0 is the recall right after the NetVLAD initialisation, before any training
+  (`--no_eval_at_start` to skip; `--eval_at_start` for BEV runs).
 - Parameters: `MYNDT_TRAIN_DEFAULTS` in `src/lpr/experiments.py`; runs in `runs/myndt/<run>/` with the same
   bookkeeping as the other runs; `eval_ndt_kitti.py` builds the network from the run's `config.json`
   (evaluations `seqs_heading` and `compass`).

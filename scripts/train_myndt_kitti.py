@@ -4,7 +4,8 @@ Everything except the network and its input is the training code of the BEV runs
 (src/lpr/bevplace.py, as train_bev_kitti.py): frames 0-2999 of the sequence, positives < 5 m,
 negatives > 7 m, 10 negatives per query, batch 4, triplet loss with margin 0.3 on the
 hardest negative, hard mining from a descriptor cache of all training frames rebuilt at the
-start of every epoch, Adam lr 1e-4, 40 epochs, random rotation of every training sample,
+start of every epoch (optionally only from epoch hard_neg_after_epoch + 1, random negatives
+before, as NDT-Transformer does), Adam lr 1e-4, 40 epochs, random rotation of every training sample,
 NetVLAD initialised by k-means (head "vlad").
 
 Network options (MYNDT_TRAIN_DEFAULTS in src/lpr/experiments.py): stn (T-Net), rotations
@@ -18,7 +19,6 @@ Example:
       --ndt_variant <variant> --log_dir /content/drive/MyDrive/lpr/runs/myndt/<run>
 """
 import argparse
-import csv
 import json
 import os
 import random
@@ -50,7 +50,7 @@ def parse():
     ap.add_argument("--log_dir", required=True)
     ap.add_argument("--ndt_variant", default="")
     for k in ("seq", "train_frames", "pos_thr", "neg_thr", "epochs", "lr", "batch", "negatives",
-              "margin", "seed", "rot_points", "rotations", "feat_dim"):
+              "margin", "seed", "hard_neg_after_epoch", "rot_points", "rotations", "feat_dim"):
         ap.add_argument(f"--{k}", type=type(d[k]), default=d[k])
     ap.add_argument("--head", default=d["head"], choices=list(HEADS))
     for k in ("rot_aug", "amp", "stn", "cov_transform"):   # booleans: --x / --no_x
@@ -59,6 +59,8 @@ def parse():
         ap.set_defaults(**{k: d[k]})
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--eval_every", type=int, default=1, help="epochs; 0 = never")
+    ap.add_argument("--no_eval_at_start", dest="eval_at_start", action="store_false",
+                    help="skip the recall before training (epoch 0 of metrics.csv)")
     ap.add_argument("--eval_batch", type=int, default=16,
                     help="clouds per forward pass when computing descriptors (memory only)")
     ap.add_argument("--ckpt_every", type=int, default=150, help="iterations")
@@ -171,6 +173,11 @@ def main():
                     scaler=scaler.state_dict() if scaler else None, epoch=ep, iter=it, perm=pm)
 
     metrics_path = os.path.join(args.log_dir, "metrics.csv")
+    if args.eval_at_start and epoch == 0 and start_iter == 0 and not os.path.exists(metrics_path):
+        r = evaluate(model, args, paths, xyz)   # after the NetVLAD initialisation, before training
+        row = {"epoch": 0, **{k: r[k] for k in ("R@1", "R@5", "R@1%", "n_queries_with_positive")}}
+        print("BEFORE TRAINING", json.dumps(row), flush=True)
+        bp.append_metrics(metrics_path, row)
     split = [args.split_forward]
     while epoch < args.epochs:
         t_epoch = time.time()
@@ -179,10 +186,16 @@ def main():
         batches = [perm[i:i + args.batch].tolist() for i in range(0, len(perm), args.batch)]
         if args.max_iters:
             batches = batches[:args.max_iters]
-        print(f"epoch {epoch + 1}: descriptor cache for hard mining", flush=True)
+        mining = epoch + 1 > args.hard_neg_after_epoch
         t0 = time.time()
-        bp.build_cache(model, train_set, DEVICE, batch=args.batch, workers=args.workers,
-                       amp=args.amp)
+        if mining:
+            print(f"epoch {epoch + 1}: descriptor cache for hard mining", flush=True)
+            bp.build_cache(model, train_set, DEVICE, batch=args.batch, workers=args.workers,
+                           amp=args.amp)
+        else:   # warm-up: random negatives, the nearest positive (the recipe's start-up mode)
+            print(f"epoch {epoch + 1}: random negatives (hard mining from epoch "
+                  f"{args.hard_neg_after_epoch + 1})", flush=True)
+            train_set.mining = False
         cache_min = (time.time() - t0) / 60
         t_log = [time.time(), start_iter]
 
@@ -206,17 +219,13 @@ def main():
         start_iter, perm = 0, None
         row = {"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan"),
                "epoch_minutes": round((time.time() - t_epoch) / 60, 2),
-               "cache_minutes": round(cache_min, 2), "split_forward": split[0]}
+               "cache_minutes": round(cache_min, 2), "split_forward": split[0],
+               "hard_mining": mining}
         if args.eval_every and (epoch % args.eval_every == 0 or epoch == args.epochs):
             r = evaluate(model, args, paths, xyz)
             row.update({k: r[k] for k in ("R@1", "R@5", "R@1%", "n_queries_with_positive")})
         print("EPOCH SUMMARY", json.dumps(row), flush=True)
-        new = not os.path.exists(metrics_path)
-        with open(metrics_path, "a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(row.keys()))
-            if new:
-                w.writeheader()
-            w.writerow(row)
+        bp.append_metrics(metrics_path, row)
         save_ckpt(latest, **state(epoch, 0, None))
         save_ckpt(os.path.join(args.log_dir, f"epoch_{epoch:02d}.pth"), model=model.state_dict(),
                   epoch=epoch)

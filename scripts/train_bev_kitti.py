@@ -14,7 +14,6 @@ Example:
       --bev_variant <variant> --log_dir /content/drive/MyDrive/lpr/runs/bev/<run>
 """
 import argparse
-import csv
 import json
 import os
 import random
@@ -44,13 +43,15 @@ def parse():
     ap.add_argument("--bev_variant", default="")
     ap.add_argument("--official", default=None, help="third_party/BEVPlace2")
     for k in ("seq", "train_frames", "pos_thr", "neg_thr", "epochs", "lr", "batch", "negatives",
-              "margin", "seed"):
+              "margin", "seed", "hard_neg_after_epoch"):
         ap.add_argument(f"--{k}", type=type(d[k]), default=d[k])
     ap.add_argument("--no_rot_aug", action="store_true", help="disable the random rotation")
     ap.add_argument("--arch", default=d["arch"], choices=list(bp.ARCHS),
                     help="rein (official) or plain (same CNN + NetVLAD, no rotations)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--eval_every", type=int, default=1, help="epochs; 0 = never")
+    ap.add_argument("--eval_at_start", action="store_true",
+                    help="recall before training (epoch 0 of metrics.csv)")
     ap.add_argument("--eval_batch", type=int, default=32,
                     help="images per forward pass when computing descriptors (memory only)")
     ap.add_argument("--ckpt_every", type=int, default=150, help="iterations")
@@ -146,6 +147,11 @@ def main():
           f"images {len(paths)}")
 
     metrics_path = os.path.join(args.log_dir, "metrics.csv")
+    if args.eval_at_start and epoch == 0 and start_iter == 0 and not os.path.exists(metrics_path):
+        r = evaluate(model, args, paths, xyz)   # after the NetVLAD initialisation, before training
+        row = {"epoch": 0, **{k: r[k] for k in ("R@1", "R@5", "R@1%", "n_queries_with_positive")}}
+        print("BEFORE TRAINING", json.dumps(row), flush=True)
+        bp.append_metrics(metrics_path, row)
     split = [args.split_forward]
     while epoch < args.epochs:
         t_epoch = time.time()
@@ -154,9 +160,15 @@ def main():
         batches = [perm[i:i + args.batch].tolist() for i in range(0, len(perm), args.batch)]
         if args.max_iters:
             batches = batches[:args.max_iters]
-        print(f"epoch {epoch + 1}: descriptor cache for hard mining", flush=True)
+        mining = epoch + 1 > args.hard_neg_after_epoch
         t0 = time.time()
-        bp.build_cache(model, train_set, DEVICE, batch=args.batch, workers=args.workers)
+        if mining:
+            print(f"epoch {epoch + 1}: descriptor cache for hard mining", flush=True)
+            bp.build_cache(model, train_set, DEVICE, batch=args.batch, workers=args.workers)
+        else:   # warm-up: random negatives, the nearest positive (the recipe's start-up mode)
+            print(f"epoch {epoch + 1}: random negatives (hard mining from epoch "
+                  f"{args.hard_neg_after_epoch + 1})", flush=True)
+            train_set.mining = False
         cache_min = (time.time() - t0) / 60
         t_log = [time.time(), start_iter]
 
@@ -180,17 +192,13 @@ def main():
         start_iter, perm = 0, None
         row = {"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else float("nan"),
                "epoch_minutes": round((time.time() - t_epoch) / 60, 2),
-               "cache_minutes": round(cache_min, 2), "split_forward": split[0]}
+               "cache_minutes": round(cache_min, 2), "split_forward": split[0],
+               "hard_mining": mining}
         if args.eval_every and (epoch % args.eval_every == 0 or epoch == args.epochs):
             r = evaluate(model, args, paths, xyz)
             row.update({k: r[k] for k in ("R@1", "R@5", "R@1%", "n_queries_with_positive")})
         print("EPOCH SUMMARY", json.dumps(row), flush=True)
-        new = not os.path.exists(metrics_path)
-        with open(metrics_path, "a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(row.keys()))
-            if new:
-                w.writeheader()
-            w.writerow(row)
+        bp.append_metrics(metrics_path, row)
         save_ckpt(latest, model=model.state_dict(), optimizer=opt.state_dict(), epoch=epoch,
                   iter=0, perm=None)
         save_ckpt(os.path.join(args.log_dir, f"epoch_{epoch:02d}.pth"), model=model.state_dict(),

@@ -60,6 +60,8 @@ BEV_TRAIN_DEFAULTS = dict(  # official BEVPlace++ values (main.py, kitti_dataset
     margin=0.3,
     rot_aug=True,          # random 0-360 deg rotation of every training image
     seed=1024,
+    hard_neg_after_epoch=0,  # N > 0: random negatives in epochs 1..N, hard mining from epoch N+1
+                           # (as NDT-Transformer, N=5); 0 = hard mining from the start (official)
     arch="rein",           # "rein": the official network (8 rotations of the image through the
                            # CNN, max over rotations, NetVLAD); "plain": the same CNN and NetVLAD
                            # with one pass and no rotations (no built-in rotation invariance)
@@ -88,6 +90,8 @@ MYNDT_TRAIN_DEFAULTS = dict(
                            # of all training frames at the start of every epoch
     rot_aug=True,          # random 0-360 deg rotation of every training cloud (cells R m, R S R^T)
     seed=1024,
+    hard_neg_after_epoch=0,  # N > 0: random negatives in epochs 1..N, hard mining from epoch N+1
+                           # (as NDT-Transformer, N=5); 0 = hard mining from the start (BEVPlace++)
     rot_points=0,          # N > 0: training clouds from the N point-rotated copies of the variant
                            # (as TRAIN_DEFAULTS rot_points); with rot_aug the copy is rotated too
     amp=True,              # mixed precision (GPU memory; 8 rotations x 2000 cells per cloud)
@@ -128,8 +132,8 @@ TRAIN_DEFAULTS = dict(
 # Parameters added after runs already existed: left out of the run hash while they have
 # these values, so the existing runs keep their names (see run_hash).
 HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 0},
-                "bev": {"arch": "rein"},
-                "myndt": {}}
+                "bev": {"arch": "rein", "hard_neg_after_epoch": 0},
+                "myndt": {"hard_neg_after_epoch": 0}}
 
 
 def _hash(params):
