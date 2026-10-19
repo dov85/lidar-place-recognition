@@ -36,7 +36,7 @@ def run(cmd):
 
 
 def has_data(method, data_dir, seq):
-    ext = "*.bin" if method == "ndt" else "*.png"
+    ext = "*.png" if method == "bev" else "*.bin"
     return len(glob.glob(os.path.join(data_dir, seq, ext))) > 0
 
 
@@ -50,8 +50,8 @@ def seqs_heading(a, params, ckpt, out):
         same = os.path.exists(res_json) and \
             evals.ckpt_name(json.load(open(res_json)).get("ckpt", "")) == evals.ckpt_name(ckpt)
         if not same or a.force:
-            script = "eval_ndt_kitti.py" if a.method == "ndt" else "eval_bev_kitti.py"
-            arg = "--ndt_dir" if a.method == "ndt" else "--bev_dir"
+            script = "eval_bev_kitti.py" if a.method == "bev" else "eval_ndt_kitti.py"
+            arg = "--bev_dir" if a.method == "bev" else "--ndt_dir"
             print(f"  {s}: evaluating", flush=True)
             run([PY, os.path.join(ROOT, "scripts", script), "--ckpt", ckpt, arg, a.data_dir,
                  "--kitti_root", a.kitti_root, "--seq", s, "--out", res_json])
@@ -94,7 +94,7 @@ def compass(a, params, ckpt, out):
         if not has_data(a.method, a.data_dir, seq):
             missing.append(seq)
             continue
-        ext = "*.bin" if a.method == "ndt" else "*.png"
+        ext = "*.png" if a.method == "bev" else "*.bin"
         n = len(glob.glob(os.path.join(a.data_dir, seq, ext)))
         outs = [os.path.join(d, f"eval_{seq}.json") for d in sig_dir.values()]
         if a.force or not all(os.path.exists(o) and evals.ckpt_name(json.load(open(o))["ckpt"])
@@ -107,8 +107,8 @@ def compass(a, params, ckpt, out):
                 f = os.path.join(ydir, f"query_{seq}_sigma_{s:g}.npy")
                 np.save(f, yaw + rng.normal(0.0, s, n))
                 qfiles.append(f)
-            script = "eval_ndt_kitti.py" if a.method == "ndt" else "eval_bev_kitti.py"
-            arg = "--ndt_dir" if a.method == "ndt" else "--bev_dir"
+            script = "eval_bev_kitti.py" if a.method == "bev" else "eval_ndt_kitti.py"
+            arg = "--bev_dir" if a.method == "bev" else "--ndt_dir"
             print(f"  {seq}: evaluating {len(qfiles)} compass errors", flush=True)
             run([PY, os.path.join(ROOT, "scripts", script), "--ckpt", ckpt, arg, a.data_dir,
                  "--kitti_root", a.kitti_root, "--seq", seq,
@@ -144,7 +144,7 @@ FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass}
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--method", required=True, choices=["ndt", "bev"])
+    ap.add_argument("--method", required=True, choices=["ndt", "bev", "myndt"])
     ap.add_argument("--run_dir", required=True)
     ap.add_argument("--ckpt", default="last", help="last | epoch_18.pth | a path")
     ap.add_argument("--eval_type", required=True, choices=sorted(evals.EVAL_TYPES))

@@ -12,6 +12,10 @@ Taken from the official repository (main.py, kitti_dataset.py), unchanged in sub
     features from 400 training images.
 The network itself (REIN) is imported from the official repository.
 
+The same code trains the own NDT network (src/lpr/myndt.py overrides TrainingDataset.load
+to load NDT cells; get_clusters takes the feature size from the model). Optional mixed
+precision (scaler / amp arguments; off for BEV, as the official code).
+
 Differences, all bookkeeping: paths are given explicitly; the descriptor cache is kept
 in memory instead of an HDF5 file; batches come from a saved permutation so a training
 interrupted inside an epoch can resume (the cache is then rebuilt with the current
@@ -106,17 +110,18 @@ class TrainingDataset(data.Dataset):
             neg_idx = np.random.choice(np.arange(len(self.negatives[index])).astype(int), self.num_neg)
             neg_idx = self.negatives[index][neg_idx]
 
-        def load(i):
-            img = cv2.imread(self.imgs_path[i])
-            if self.rot_aug:
-                img = _rotate(img)
-            return img.transpose(2, 0, 1)
-
-        query = load(index).astype(np.float32) / 256
-        positive = load(pos_idx).astype(np.float32) / 256
-        negatives = torch.stack([torch.from_numpy((load(i) / 256).astype(np.float32))
-                                 for i in neg_idx], 0)
+        query = self.load(index)
+        positive = self.load(pos_idx)
+        negatives = torch.stack([torch.from_numpy(self.load(i)) for i in neg_idx], 0)
         return query, positive, negatives, index
+
+    def load(self, i):
+        """One training sample as float32 (with the random rotation). Subclasses load other
+        data (src/lpr/myndt.py: NDT cells) and keep the rest of the recipe."""
+        img = cv2.imread(self.imgs_path[i])
+        if self.rot_aug:
+            img = _rotate(img)
+        return (img.transpose(2, 0, 1) / 256).astype(np.float32)
 
     def __len__(self):
         return len(self.poses)
@@ -144,6 +149,11 @@ class InferDataset(data.Dataset):
         return len(self.imgs_path)
 
 
+def _autocast(device, enabled):
+    return torch.autocast(device_type=torch.device(device).type, dtype=torch.float16,
+                          enabled=bool(enabled) and torch.device(device).type == "cuda")
+
+
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.3):
         super().__init__()
@@ -156,17 +166,18 @@ class TripletLoss(nn.Module):
 
 
 @torch.no_grad()
-def infer(model, dataset, device, batch=32, workers=2):
+def infer(model, dataset, device, batch=32, workers=2, amp=False):
     model.eval()
     out = []
     for imgs, _ in DataLoader(dataset, num_workers=workers, batch_size=batch, shuffle=False):
-        _, _, g = model(imgs.to(device))
-        out.append(g.cpu().numpy())
+        with _autocast(device, amp):
+            _, _, g = model(imgs.to(device))
+        out.append(g.float().cpu().numpy())
     return np.concatenate(out, axis=0)
 
 
 @torch.no_grad()
-def build_cache(model, train_set, device, batch=4, workers=2):
+def build_cache(model, train_set, device, batch=4, workers=2, amp=False):
     """Descriptors of every training frame (official: start of every epoch)."""
     model.eval()
     train_set.mining = False
@@ -174,21 +185,26 @@ def build_cache(model, train_set, device, batch=4, workers=2):
     loader = DataLoader(train_set, num_workers=workers, batch_size=batch, shuffle=False,
                         collate_fn=collate_fn)
     for query, _, _, indices in loader:
-        _, _, g = model(query.to(device))
-        feats[indices, :] = g.cpu().numpy()
+        with _autocast(device, amp):
+            _, _, g = model(query.to(device))
+        feats[indices, :] = g.float().cpu().numpy()
     train_set.h5feat = feats
     train_set.mining = True
 
 
 def train_batches(model, train_set, batches, optimizer, device, batch_size, margin=0.3,
-                  workers=2, log=None, on_iter=None, start=0, split=None):
+                  workers=2, log=None, on_iter=None, start=0, split=None, scaler=None):
     """One pass over the given index batches (official train_epoch, after the cache).
 
     split: [False] holds the "one forward pass per batch" flag. If a batch of 4 x 12 images
     does not fit in GPU memory, it is set to True and every tuple (12 images) gets its own
     forward/backward pass, with the gradients accumulated: the same loss and update, except
     that BatchNorm sees 12 images at a time instead of 48.
+    scaler: a torch.amp.GradScaler for mixed precision (None: full precision, as the official
+    code).
     """
+    amp = scaler is not None
+    scale = (lambda l: scaler.scale(l)) if amp else (lambda l: l)
     split = split if split is not None else [False]
     criterion = TripletLoss(margin).to(device)
     loader = DataLoader(train_set, num_workers=workers, batch_sampler=batches[start:],
@@ -210,10 +226,11 @@ def train_batches(model, train_set, batches, optimizer, device, batch_size, marg
         if not split[0]:
             try:
                 inp = torch.cat([query, positives, negatives]).to(device)
-                _, _, g = model(inp)
-                gq, gp, gn = torch.split(g, [B, B, negatives.shape[0]])
+                with _autocast(device, amp):
+                    _, _, g = model(inp)
+                gq, gp, gn = torch.split(g.float(), [B, B, negatives.shape[0]])
                 loss = tuple_loss(gq, gp, gn, num_negs)
-                loss.backward()
+                scale(loss).backward()
                 total = loss.item()
             except torch.cuda.OutOfMemoryError:
                 print("CUDA out of memory with the full batch -> one tuple per forward pass",
@@ -227,12 +244,17 @@ def train_batches(model, train_set, batches, optimizer, device, batch_size, marg
             for i in range(B):
                 negs = negatives[num_negs * i:num_negs * (i + 1)]
                 inp = torch.cat([query[i:i + 1], positives[i:i + 1], negs]).to(device)
-                _, _, g = model(inp)
-                gq, gp, gn = torch.split(g, [1, 1, num_negs])
+                with _autocast(device, amp):
+                    _, _, g = model(inp)
+                gq, gp, gn = torch.split(g.float(), [1, 1, num_negs])
                 loss = tuple_loss(gq, gp, gn, num_negs)
-                loss.backward()
+                scale(loss).backward()
                 total += loss.item()
-        optimizer.step()
+        if amp:
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            optimizer.step()
         losses.append(total)
         if log:
             log(it, losses)
@@ -253,16 +275,17 @@ def get_clusters(model, cluster_set, device, batch=128, workers=2, n_descriptors
                         sampler=sampler, collate_fn=collate_fn)
     model.eval()
     cluster_set.mining = False
-    all_feats = np.zeros((n_descriptors, 128), dtype=np.float32)
+    dim = getattr(model, "local_feat_dim", 128)   # 128 for REIN
+    all_feats = np.zeros((n_descriptors, dim), dtype=np.float32)
     for iteration, (query, _, _, _) in enumerate(loader, 1):
         local_feat, _, _ = model(query.to(device))
-        local_feat = local_feat.view(query.size(0), 128, -1).permute(0, 2, 1)
+        local_feat = local_feat.reshape(query.size(0), dim, -1).permute(0, 2, 1)
         batchix = (iteration - 1) * batch * n_per_image
         for ix in range(local_feat.size(0)):
             sample = np.random.choice(local_feat.size(1), n_per_image, replace=False)
             startix = batchix + ix * n_per_image
             all_feats[startix:startix + n_per_image, :] = local_feat[ix, sample, :].cpu().numpy()
     kw = {} if seed is None else {"seed": int(seed)}
-    kmeans = faiss.Kmeans(128, 64, niter=niter, verbose=False, **kw)
+    kmeans = faiss.Kmeans(dim, 64, niter=niter, verbose=False, **kw)
     kmeans.train(all_feats)
     return kmeans.centroids, all_feats

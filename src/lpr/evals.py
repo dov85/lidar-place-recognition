@@ -21,7 +21,7 @@ ALL_SEQS = ["00", "02", "05", "06", "08"]
 EVAL_TYPES = {
     # Recall on every sequence (BEVPlace++ protocol) + query headings vs map headings,
     # with Recall@1 per heading group (same / crossing / opposite).
-    "seqs_heading": dict(methods=["ndt", "bev"],
+    "seqs_heading": dict(methods=["ndt", "bev", "myndt"],
                          params=dict(seqs=ALL_SEQS)),
     # NDT-Transformer only: what the T-Net learned. Scans rotated about the vertical axis;
     # distance of T from the identity, whether T follows the rotation, descriptor drift.
@@ -31,7 +31,7 @@ EVAL_TYPES = {
     # pose, so map and queries share one orientation; each query also gets a compass error
     # drawn from N(0, sigma^2), for each sigma (degrees). Recall per sequence and sigma, and
     # per heading group (relative to the true headings).
-    "compass": dict(methods=["ndt", "bev"],
+    "compass": dict(methods=["ndt", "bev", "myndt"],
                     params=dict(seqs=ALL_SEQS, sigma_deg=[0, 2, 5, 10, 20, 45], seed=0)),
 }
 

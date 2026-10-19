@@ -1,5 +1,9 @@
 """Evaluate an NDT-Transformer checkpoint on one KITTI sequence.
 
+Official network (runs of train_ndt_kitti.py), or the own network (src/lpr/models/ndt_net.py,
+runs of train_myndt_kitti.py: config.json next to the checkpoint with method "myndt", whose
+network parameters are used).
+
 Example:
   python scripts/eval_ndt_kitti.py --ckpt runs/ndt_00/epoch_20.pth --ndt_dir /content/ndt \
       --kitti_root /content/kitti --seq 00 --out runs/ndt_00/eval_00.json
@@ -23,6 +27,7 @@ import models.NDTNetVlad as official_model  # noqa: E402
 
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
+from lpr.models import ndt_net  # noqa: E402
 from lpr.rotation import rotate_cells  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,17 +55,27 @@ def main():
     args = ap.parse_args()
     cfg.DATASET_FOLDER = args.ndt_dir
 
-    model = official_model.NDTNetVlad(num_points=2000, output_dim=256, emb_dims=1024,
-                                      layer_number=3).to(DEVICE)
-    ck = torch.load(args.ckpt, map_location=DEVICE, weights_only=False)
-    model.load_state_dict(ck.get("model", ck.get("state_dict", ck)))
-    model.eval()
+    mine = ndt_net.run_params(args.ckpt)
     cov = args.cov_transform == "on"
     if args.cov_transform == "auto":
         run_cfg = os.path.join(os.path.dirname(os.path.abspath(args.ckpt)), "config.json")
         if os.path.exists(run_cfg):
             cov = bool(json.load(open(run_cfg)).get("params", {}).get("cov_transform", False))
-    model.Transformer.convariance_transform = cov
+    if mine is not None:
+        net = ndt_net.build(dict(mine, cov_transform=cov))
+        print("own NDT network:", {k: mine.get(k) for k in ndt_net.MODEL_KEYS})
+    else:
+        net = official_model.NDTNetVlad(num_points=2000, output_dim=256, emb_dims=1024,
+                                        layer_number=3)
+        net.Transformer.convariance_transform = cov
+    net = net.to(DEVICE)
+    ck = torch.load(args.ckpt, map_location=DEVICE, weights_only=False)
+    net.load_state_dict(ck.get("model", ck.get("state_dict", ck)))
+    net.eval()
+
+    def model(x):   # descriptors of (B, 1, N, 12)
+        out = net(x)
+        return out[-1] if isinstance(out, tuple) else out
 
     n = len(glob.glob(os.path.join(args.ndt_dir, args.seq, "*.bin")))
     files = [os.path.join(args.seq, f"{i:06d}.bin") for i in range(n)]

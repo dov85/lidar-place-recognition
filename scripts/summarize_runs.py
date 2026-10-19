@@ -1,4 +1,5 @@
-"""One table of all runs (NDT-Transformer and BEVPlace++): parameters, variant, results.
+"""One table of all runs (NDT-Transformer, BEVPlace++, own NDT network): parameters, variant,
+results.
 
 Reads <drive>/runs/<method>/*/config.json, metrics.csv and eval/<type>/<checkpoint>/, and writes
   <drive>/runs_summary.csv    one row per run (parameters, training, the latest seqs_heading
@@ -17,9 +18,12 @@ import os
 import pandas as pd
 
 KEY_PARAMS = ["lr", "epochs", "negatives", "positives", "margin", "margin1", "margin2", "batch",
-              "pos_thr", "neg_thr", "hard_neg_after_epoch", "rot_aug", "cov_transform", "amp", "seed"]
+              "pos_thr", "neg_thr", "hard_neg_after_epoch", "rot_aug", "rot_points", "cov_transform",
+              "arch", "stn", "rotations", "head", "feat_dim", "amp", "seed"]
 KEY_PRE = {"ndt": ["crop", "half_size", "ground", "radius", "over", "min_pts"],
            "bev": ["half_size", "voxel", "res", "max_count", "ground"]}
+KEY_PRE["myndt"] = KEY_PRE["ndt"]
+DATA = {"ndt": "ndt", "bev": "bev", "myndt": "ndt"}   # whose variants a method uses
 
 
 def main():
@@ -28,7 +32,7 @@ def main():
     args = ap.parse_args()
 
     rows, eval_rows = [], []
-    run_dirs = [(m, d) for m in ("ndt", "bev")
+    run_dirs = [(m, d) for m in ("ndt", "bev", "myndt")
                 for d in sorted(glob.glob(os.path.join(args.drive, "runs", m, "*")))]
     for method, run_dir in run_dirs:
         cfg_path = os.path.join(run_dir, "config.json")
@@ -36,10 +40,10 @@ def main():
             continue
         cfg = json.load(open(cfg_path))
         row = {"method": method, "run": os.path.basename(run_dir), "status": cfg.get("status"),
-               "variant": cfg.get(f"{method}_variant"), "gpu": cfg.get("gpu"),
+               "variant": cfg.get(f"{DATA[method]}_variant"), "gpu": cfg.get("gpu"),
                "started": cfg.get("started"), "commit": cfg.get("code_commit")}
         row.update({k: cfg.get("params", {}).get(k) for k in KEY_PARAMS})
-        pre_path = os.path.join(run_dir, f"{method}_config.json")
+        pre_path = os.path.join(run_dir, f"{DATA[method]}_config.json")
         if os.path.exists(pre_path):
             pre = json.load(open(pre_path)).get("params", {})
             row.update({f"pre_{k}": pre.get(k) for k in KEY_PRE[method]})

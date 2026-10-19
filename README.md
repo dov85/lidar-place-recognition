@@ -14,6 +14,7 @@ A controlled comparison of NDT-Transformer and BEVPlace++ under one evaluation p
 | NDT cell generation G (not in the official repo) | `src/lpr/ndt_g.py` |
 | Cropping and ground removal | `src/lpr/preprocess.py` |
 | KITTI download, tuples, training loop, evaluation | `scripts/`, `src/lpr/` |
+| Own NDT network: NDT-Transformer re-implemented, with REIN-like rotations and either head; trained with the BEVPlace++ recipe | `src/lpr/models/`, `src/lpr/myndt.py`, check: `tests/test_models.py` |
 
 The official repositories are not copied into this repo; `scripts/setup_third_party.sh`
 clones them at fixed commits.
@@ -141,6 +142,32 @@ from the map frames at the same place, and Recall@1 for same / crossing / opposi
    NetVLAD, so no built-in rotation invariance; with `rot_aug=True` or `False`. Same parameters and
    checkpoint format; the evaluation scripts read `arch` from the run's `config.json`.
 
+## Own NDT network with the BEVPlace++ recipe (`notebooks/04_myndt_kitti.ipynb`, method `myndt`)
+
+To compare the representations (NDT cells vs BEV image) with everything else equal:
+
+- **Network** (`src/lpr/models/ndt_net.py`, own code): the layers of NDT-Transformer — optional T-Net
+  (`stn`), conv1 12→256, Transformer encoder (3 layers, 4 heads), conv2 512→`feat_dim` — and a head from
+  `src/lpr/models/heads.py`: `vlad` (the NetVLAD of BEVPlace++, 64 × `feat_dim` = 8192 with `feat_dim=128`,
+  k-means initialisation, cell features L2-normalised before it, as BEVPlace++ does) or `loupe` (NetVLADLoupe of
+  NDT-Transformer, 256-d, with an added final L2 normalisation so the triplet margin means the same).
+  `rotations=R` adds REIN-like rotation equivariance: the cells are rotated about z by 0, 360/R, …
+  (means R m, covariances R S Rᵀ), every copy goes through the same encoder, and each cell keeps the maximum
+  over the copies. Cells keep their order, so no warp back is needed, and a scan rotated by a multiple of
+  360/R gives exactly the same descriptor. `NDTNet(stn=True, rotations=1, head="loupe", feat_dim=1024)` is the
+  official network: `tests/test_models.py` loads official weights into it and gets the same descriptors, and
+  checks the NetVLAD head against the official BEVPlace++ one.
+- **Recipe**: the training code of the BEV runs, unchanged (`src/lpr/bevplace.py`; a BEV sample is loaded by
+  `TrainingDataset.load`, which `src/lpr/myndt.py` overrides to load NDT cells): positives < 5 m, negatives > 7 m
+  among frames 0–2999, 10 negatives, batch 4, triplet loss (margin 0.3, hardest negative), hard mining from a
+  descriptor cache of all training frames rebuilt every epoch, Adam 1e-4, 40 epochs, a random 0–360° rotation of
+  every training sample (`rot_aug`), optionally the point-rotated copies (`rot_points`). Mixed precision
+  (`amp=True`) for GPU memory; if a batch does not fit, the tuples go one by one with accumulated gradients
+  (as for BEV).
+- Parameters: `MYNDT_TRAIN_DEFAULTS` in `src/lpr/experiments.py`; runs in `runs/myndt/<run>/` with the same
+  bookkeeping as the other runs; `eval_ndt_kitti.py` builds the network from the run's `config.json`
+  (evaluations `seqs_heading` and `compass`).
+
 ## Checks of the NDT cells (`src/lpr/ndt_check.py`, notebook 03)
 
 Built into every extraction (`extract_ndt.py`, in Colab and on Azure): for every scan, how well the cells cover
@@ -181,6 +208,9 @@ by (seed, sequence, i, c) and stored in `stats_<seq>_rot<N>.csv`. Hard-negative 
 unrotated cells, as with `rot_aug`. Both can be combined.
 
 ## Tests without KITTI
+
+`python tests/test_models.py` checks the own network against the official code (same descriptors from the same
+weights), the NetVLAD head against BEVPlace++, and the exact 45° invariance with 8 rotations (CPU, a few minutes).
 
 `python tests/test_bev_matches_official.py` compares `src/lpr/bev.py` with the official BEV script on synthetic
 scans (`--scans a.bin b.bin` for real ones; needs open3d).

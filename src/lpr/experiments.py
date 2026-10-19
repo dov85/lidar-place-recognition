@@ -1,7 +1,8 @@
 """Bookkeeping for preprocessing variants and training runs on Google Drive.
 
-Two methods share the layout: "ndt" (NDT-Transformer, NDT cells) and "bev"
-(BEVPlace++, BEV density images).
+Three methods share the layout: "ndt" (NDT-Transformer, NDT cells), "bev"
+(BEVPlace++, BEV density images) and "myndt" (own NDT network trained with the BEVPlace++
+recipe; uses the NDT variants of "ndt").
   <drive>/<method>/<variant>/config.json   every preprocessing parameter, and per
                                             sequence: scans, stats, date ("seqs")
                     <archive>_<seq>.tar    one sequence (cells_XX.tar for ndt,
@@ -68,7 +69,37 @@ METHODS = {
     # method: (preprocessing defaults, training defaults, archive prefix, variant key in run hash)
     "ndt": ("NDT_DEFAULTS", "TRAIN_DEFAULTS", "cells", "ndt_variant"),
     "bev": ("BEV_DEFAULTS", "BEV_TRAIN_DEFAULTS", "imgs", "bev_variant"),
+    # own NDT network (src/lpr/models) trained with the BEVPlace++ recipe; uses the NDT variants
+    "myndt": ("NDT_DEFAULTS", "MYNDT_TRAIN_DEFAULTS", "cells", "ndt_variant"),
 }
+
+# Own NDT network (src/lpr/models/ndt_net.py) with the training recipe of BEVPlace++
+# (src/lpr/bevplace.py, the same code as BEV runs): only the network and its input differ.
+MYNDT_TRAIN_DEFAULTS = dict(
+    seq="00",
+    train_frames=3000,     # recipe of BEVPlace++ (as BEV_TRAIN_DEFAULTS) ...
+    pos_thr=5.0,
+    neg_thr=7.0,
+    epochs=40,
+    lr=1e-4,
+    batch=4,               # queries per batch, each with 1 positive and 10 negatives
+    negatives=10,
+    margin=0.3,            # triplet loss, hardest negative; hard mining from a descriptor cache
+                           # of all training frames at the start of every epoch
+    rot_aug=True,          # random 0-360 deg rotation of every training cloud (cells R m, R S R^T)
+    seed=1024,
+    rot_points=0,          # N > 0: training clouds from the N point-rotated copies of the variant
+                           # (as TRAIN_DEFAULTS rot_points); with rot_aug the copy is rotated too
+    amp=True,              # mixed precision (GPU memory; 8 rotations x 2000 cells per cloud)
+    # ... network:
+    stn=False,             # T-Net (STN3d) of NDT-Transformer before the encoder
+    rotations=8,           # REIN-like: cells rotated by 0, 45, ..., 315 deg, the same encoder on
+                           # every copy, maximum over the copies per cell; 1 = no rotations
+    head="vlad",           # "vlad": NetVLAD of BEVPlace++ (64 x feat_dim, k-means init);
+                           # "loupe": NetVLADLoupe of NDT-Transformer (256, with a final L2)
+    feat_dim=128,          # channels per cell before the head (BEVPlace++: 128; official NDT: 1024)
+    cov_transform=False,   # with stn: the T-Net also transforms the covariances
+)
 
 TRAIN_DEFAULTS = dict(
     seq="00",
@@ -97,7 +128,8 @@ TRAIN_DEFAULTS = dict(
 # Parameters added after runs already existed: left out of the run hash while they have
 # these values, so the existing runs keep their names (see run_hash).
 HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 0},
-                "bev": {"arch": "rein"}}
+                "bev": {"arch": "rein"},
+                "myndt": {}}
 
 
 def _hash(params):
