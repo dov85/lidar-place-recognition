@@ -40,6 +40,9 @@ from lpr.models import ndt_net  # noqa: E402
 from lpr.models.heads import HEADS  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# the transformer's inference fast path (descriptor cache, evaluation) builds full attention
+# matrices; the regular path uses memory-efficient attention, as in training
+torch.backends.mha.set_fastpath_enabled(False)
 
 
 def parse():

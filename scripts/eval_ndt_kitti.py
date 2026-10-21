@@ -40,7 +40,9 @@ def main():
     ap.add_argument("--kitti_root", required=True)
     ap.add_argument("--seq", default="00")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument("--batch", type=int, default=32,
+                    help="scans per forward pass; divided by the number of rotations of an own "
+                         "network (memory only)")
     ap.add_argument("--split", type=int, default=None, help="override the split point")
     ap.add_argument("--gap", type=int, default=kitti.QUERY_GAP)
     ap.add_argument("--yaw_db", default=None,
@@ -63,6 +65,11 @@ def main():
             cov = bool(json.load(open(run_cfg)).get("params", {}).get("cov_transform", False))
     if mine is not None:
         net = ndt_net.build(dict(mine, cov_transform=cov))
+        # every scan goes through the encoder once per rotation; PyTorch's inference fast path of
+        # the transformer builds the full attention matrices (8 x 32 scans x 4 heads x 2000^2 =
+        # 15 GB), so use the memory-efficient attention and fewer scans per pass
+        torch.backends.mha.set_fastpath_enabled(False)
+        args.batch = max(1, args.batch // net.rotations)
         print("own NDT network:", {k: mine.get(k) for k in ndt_net.MODEL_KEYS})
     else:
         net = official_model.NDTNetVlad(num_points=2000, output_dim=256, emb_dims=1024,
