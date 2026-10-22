@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti  # noqa: E402
 from lpr.experiments import NDT_DEFAULTS  # noqa: E402
 from lpr.ndt_g import ndt_cells  # noqa: E402
+from lpr.beams import drop_beams  # noqa: E402
 from lpr.preprocess import crop, preprocess  # noqa: E402
 
 
@@ -49,10 +50,12 @@ def main():
     ap.add_argument("--min_pts", type=int, default=d["min_pts"])
     ap.add_argument("--knn", type=int, default=d["knn"])
     ap.add_argument("--cov_eps", type=float, default=d["cov_eps"])
+    ap.add_argument("--beams", type=int, default=d["beams"], choices=[64, 32, 16])
     ap.add_argument("--variant", default="")
     args = ap.parse_args()
 
     scan = kitti.load_scan(kitti.scan_path(args.kitti_root, args.seq, args.idx))
+    scan, _ = drop_beams(scan, args.beams)
     t0 = time.time()
     pts = preprocess(scan, ground=args.ground, half_size=args.half_size, crop_shape=args.crop)
     t1 = time.time()

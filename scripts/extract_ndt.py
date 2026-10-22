@@ -40,6 +40,7 @@ from lpr.experiments import (NDT_DEFAULTS, full_params, git_commit, ndt_hash,  #
 from lpr.experiments import rot_dir_name  # noqa: E402
 from lpr import ndt_check  # noqa: E402
 from lpr.ndt_g import ndt_cells, to_official_format  # noqa: E402
+from lpr.beams import drop_beams  # noqa: E402
 from lpr.preprocess import crop, preprocess  # noqa: E402
 from lpr.rotation import rz  # noqa: E402
 
@@ -62,6 +63,8 @@ def process(item):
         return None
     t0 = time.time()
     scan = kitti.load_scan(kitti.scan_path(ARGS.kitti_root, ARGS.seq, idx))
+    n_raw = len(scan)
+    scan, beam_info = drop_beams(scan, ARGS.beams)   # sparsity axis; nothing at 64 beams
     angle = None
     if copy is not None:   # rotate the raw points before crop, ground removal and cells
         angle = rot_angle(ARGS.rot_seed, ARGS.seq, idx, copy)
@@ -74,7 +77,10 @@ def process(item):
     tmp = out + ".tmp"
     arr.tofile(tmp)
     os.replace(tmp, out)
-    info.update(idx=idx, n_raw=len(scan), seconds=round(time.time() - t0, 3))
+    info.update(idx=idx, n_raw=n_raw, seconds=round(time.time() - t0, 3))
+    if ARGS.beams < 64:
+        info.update(n_after_beams=len(scan), rings_found=beam_info["rings_found"],
+                    ring_by_order=int(beam_info["ring_method"] == "order"))
     if copy is not None:
         info.update(copy=copy, angle_deg=round(angle, 4))
     # built-in checks: coverage of every scan, pictures of a few
@@ -104,6 +110,8 @@ def main():
     ap.add_argument("--min_pts", type=int, default=d["min_pts"])
     ap.add_argument("--knn", type=int, default=d["knn"])
     ap.add_argument("--cov_eps", type=float, default=d["cov_eps"])
+    ap.add_argument("--beams", type=int, default=d["beams"], choices=[64, 32, 16],
+                    help="laser rings kept (src/lpr/beams.py)")
     ap.add_argument("--variant", default="", help="name recorded in config.json")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     ap.add_argument("--first", type=int, default=None, help="only the first N scans (testing)")
@@ -140,6 +148,7 @@ def main():
     new_file = not os.path.exists(stats_path)
     fields = ["idx", "n_raw", "n_points", "voxel", "cells_before_removal", "removed",
               "padded", "seconds"] + (["copy", "angle_deg"] if rot else []) \
+        + (["n_after_beams", "rings_found", "ring_by_order"] if ARGS.beams < 64 else []) \
         + ndt_check.COVERAGE_FIELDS
     if not new_file:   # resuming: keep the columns of the existing file
         with open(stats_path) as f:

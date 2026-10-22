@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti, ndt_check  # noqa: E402
 from lpr.experiments import NDT_DEFAULTS  # noqa: E402
 from lpr.ndt_g import from_official_format  # noqa: E402
+from lpr.beams import drop_beams  # noqa: E402
 from lpr.preprocess import crop, preprocess  # noqa: E402
 
 A = None
@@ -41,6 +42,7 @@ P = None
 
 def check(idx):
     scan = kitti.load_scan(kitti.scan_path(A.kitti_root, A.seq, idx))
+    scan, _ = drop_beams(scan, P["beams"])
     pts = preprocess(scan, ground=P["ground"], half_size=P["half_size"], crop_shape=P["crop"])
     arr = np.fromfile(os.path.join(A.ndt_dir, A.seq, f"{idx:06d}.bin"), dtype=np.float64)
     means, covs = from_official_format(arr, scale=P["half_size"])

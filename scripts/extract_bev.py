@@ -20,6 +20,7 @@ import cv2
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from lpr import kitti  # noqa: E402
+from lpr.beams import drop_beams  # noqa: E402
 from lpr.bev import make_bev  # noqa: E402
 from lpr.experiments import BEV_DEFAULTS, full_params, git_commit, ndt_hash, write_json  # noqa: E402
 
@@ -33,7 +34,13 @@ def process(idx):
         return None
     t0 = time.time()
     scan = kitti.load_scan(kitti.scan_path(ARGS.kitti_root, ARGS.seq, idx))
-    img, info = make_bev(scan, **PARAMS)
+    n_raw = len(scan)
+    scan, beam_info = drop_beams(scan, PARAMS["beams"])   # sparsity axis; nothing at 64 beams
+    img, info = make_bev(scan, **{k: v for k, v in PARAMS.items() if k != "beams"})
+    info["n_raw"] = n_raw
+    if PARAMS["beams"] < 64:
+        info.update(n_after_beams=len(scan), rings_found=beam_info["rings_found"],
+                    ring_by_order=int(beam_info["ring_method"] == "order"))
     tmp = os.path.join(ARGS.out_dir, ARGS.seq, f".{idx:06d}.tmp.png")
     cv2.imwrite(tmp, img)
     os.replace(tmp, out)
@@ -54,6 +61,8 @@ def main():
     ap.add_argument("--res", type=float, default=d["res"])
     ap.add_argument("--max_count", type=int, default=d["max_count"])
     ap.add_argument("--ground", default=d["ground"], choices=["none", "patchwork", "ransac"])
+    ap.add_argument("--beams", type=int, default=d["beams"], choices=[64, 32, 16],
+                    help="laser rings kept (src/lpr/beams.py)")
     ap.add_argument("--variant", default="", help="name recorded in config.json")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     ap.add_argument("--first", type=int, default=None, help="only the first N scans (testing)")
@@ -73,7 +82,8 @@ def main():
     idxs = list(range(n if ARGS.first is None else min(n, ARGS.first)))
     stats_path = os.path.join(ARGS.out_dir, f"{ARGS.seq}_stats.csv")
     new_file = not os.path.exists(stats_path)
-    fields = ["idx", "n_raw", "n_points", "n_voxels", "occupied_px", "seconds"]
+    fields = ["idx", "n_raw", "n_points", "n_voxels", "occupied_px", "seconds"] + \
+        (["n_after_beams", "rings_found", "ring_by_order"] if PARAMS["beams"] < 64 else [])
     t0 = time.time()
     done = 0
     with open(stats_path, "a", newline="") as f, Pool(ARGS.workers) as pool:

@@ -37,6 +37,8 @@ NDT_DEFAULTS = dict(
     min_pts=5,
     knn=8,
     cov_eps=1e-3,
+    beams=64,             # 32 / 16: rings of the HDL-64E dropped before anything else (sparsity
+                          # axis, src/lpr/beams.py)
 )
 
 BEV_DEFAULTS = dict(       # official BEVPlace++ values (datasets/gen_bev_images.py)
@@ -46,6 +48,7 @@ BEV_DEFAULTS = dict(       # official BEVPlace++ values (datasets/gen_bev_images
     res=0.4,
     max_count=10,
     ground="none",
+    beams=64,             # 32 / 16: fewer laser rings (src/lpr/beams.py)
 )
 
 BEV_TRAIN_DEFAULTS = dict(  # official BEVPlace++ values (main.py, kitti_dataset.py)
@@ -136,6 +139,11 @@ HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 
                 "myndt": {"hard_neg_after_epoch": 0}}
 
 
+# Preprocessing parameters added after variants already existed: left out of the variant
+# hash while they have these values, so the existing variants keep their names.
+VARIANT_HASH_OMIT_IF = {"beams": 64}
+
+
 def _hash(params):
     s = json.dumps(params, sort_keys=True, default=str)
     return hashlib.sha1(s.encode()).hexdigest()[:6]
@@ -207,7 +215,7 @@ def upgrade_ndt_config(cfg):
     per_seq = {k: cfg.pop(k) for k in ("n_scans", "stats_mean", "padded_scans", "started",
                                        "finished") if k in cfg}
     cfg.setdefault("seqs", {})[seq] = per_seq
-    cfg["params_hash"] = _hash(params)
+    cfg["params_hash"] = ndt_hash(params)
     return cfg, True
 
 
@@ -237,7 +245,7 @@ def resolve_variant(drive, method, params, tag=""):
     """Existing variant with exactly these parameters, or a new name for them."""
     defaults = method_defaults(method)[0]
     p = full_params(defaults, params)
-    h = _hash(p)
+    h = ndt_hash(p)
     for cfg_path in sorted(glob.glob(os.path.join(drive, method, "*", "config.json"))):
         cfg = _read(cfg_path)
         if cfg:
@@ -280,5 +288,17 @@ def run_hash(train_params_full, variant, method="ndt"):
     return _hash({"train": p, METHODS[method][3]: variant})
 
 
+def sparse_variant(method, base_variant, base_params, beams):
+    """Name and parameters of the variant with `beams` laser rings derived from a 64-beam
+    variant (sparsity axis): the same parameters with beams changed, named
+    <date of the base variant>_beams<N>_<hash>, so Colab and the Azure VM agree on it."""
+    defaults = method_defaults(method)[0]
+    p = full_params(defaults, dict(base_params, beams=beams))
+    return f"{base_variant[:10]}_beams{beams}_{ndt_hash(p)}", p
+
+
 def ndt_hash(ndt_params_full):
-    return _hash(ndt_params_full)
+    """Hash of a preprocessing variant (NDT or BEV)."""
+    p = {k: v for k, v in ndt_params_full.items()
+         if not (k in VARIANT_HASH_OMIT_IF and v == VARIANT_HASH_OMIT_IF[k])}
+    return _hash(p)
