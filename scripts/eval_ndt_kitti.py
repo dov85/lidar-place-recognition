@@ -52,6 +52,9 @@ def main():
                     help="compass test: .npy files with one angle per frame for the queries; one "
                          "result per file, written to the matching --outs entry")
     ap.add_argument("--outs", nargs="+", default=None)
+    ap.add_argument("--query_dir", default=None,
+                    help="sparsity test: the queries come from this variant folder (e.g. 16 beams), "
+                         "the database from --ndt_dir")
     ap.add_argument("--cov_transform", choices=["auto", "on", "off"], default="auto",
                     help="auto: as in config.json next to the checkpoint (the run's setting)")
     args = ap.parse_args()
@@ -89,12 +92,17 @@ def main():
     if args.yaw_q:
         return compass(args, model, files, n, cov)
     t0 = time.time()
-    desc = []
-    with torch.no_grad():
-        for s in range(0, n, args.batch):
-            x = torch.from_numpy(lp.load_pc_files(files[s:s + args.batch])).float()
-            desc.append(model(x.unsqueeze(1).to(DEVICE)).cpu().numpy())
-    desc = np.concatenate(desc)
+
+    def describe(folder, names):
+        cfg.DATASET_FOLDER = folder
+        out = []
+        with torch.no_grad():
+            for s in range(0, len(names), args.batch):
+                x = torch.from_numpy(lp.load_pc_files(names[s:s + args.batch])).float()
+                out.append(model(x.unsqueeze(1).to(DEVICE)).cpu().numpy())
+        return np.concatenate(out)
+
+    desc = describe(args.ndt_dir, files)
     sec = (time.time() - t0) / n
 
     xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
@@ -102,9 +110,12 @@ def main():
         db, q = kitti.split_indices(args.seq, n)
     else:
         db, q = np.arange(args.split), np.arange(args.split + args.gap, n)
+    if args.query_dir:   # queries from another variant (same scans, e.g. fewer beams)
+        desc[q] = describe(args.query_dir, [files[i] for i in q])
     r = recall(desc[db], desc[q], xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
     top1 = r.pop("top1_indices")
-    r.update(seq=args.seq, ckpt=args.ckpt, cov_transform=cov, network_seconds_per_scan=sec)
+    r.update(seq=args.seq, ckpt=args.ckpt, cov_transform=cov, network_seconds_per_scan=sec,
+             db_dir=args.ndt_dir, query_dir=args.query_dir or args.ndt_dir)
     print(json.dumps(r, indent=1))
     if args.out:
         with open(args.out, "w") as f:

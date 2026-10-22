@@ -173,6 +173,27 @@ To compare the representations (NDT cells vs BEV image) with everything else equ
   bookkeeping as the other runs; `eval_ndt_kitti.py` builds the network from the run's `config.json`
   (evaluations `seqs_heading` and `compass`).
 
+## Sparsity: 32 and 16 laser beams (`src/lpr/beams.py`, evaluation type `sparsity`)
+
+A cheaper LiDAR is simulated on the same KITTI scans: the variant parameter `beams` (64 / 32 / 16, for NDT
+and BEV variants) keeps every 2nd or 4th laser ring, before crop, ground removal, cells or image. KITTI files
+have no ring index; it is recovered from the order of the points (a scan is stored ring after ring; a new ring
+starts where the azimuth wraps around), with the elevation angle against the nominal HDL-64E angles as a
+fallback, and the rings are ranked by elevation. `scripts/check_beams.py` checks this on real scans (rings
+found per scan, share of points kept, a picture with 64 / 32 / 16 beams). `beams=64` is left out of the
+variant hash, so existing variants keep their names.
+
+The sparse variants of a 64-beam variant are named by `experiments.sparse_variant`
+(`<date of the base variant>_beams<N>_<hash>`) and built on Azure:
+`METHOD=ndt VARIANT=2026-10-04_beams16_ec17f5 ARGS="--beams 16" CELL_SEQS="00 02 05 06 08" bash scripts/azure_build.sh "<SAS URL>"`
+(BEV: `METHOD=bev VARIANT=2026-10-05_beams16_50ef74 ARGS="--beams 16"`; 32 beams: `_beams32_c9807e` / `_beams32_9d369f`).
+
+`EVALS = [..., "sparsity"]` in notebooks 01 / 02 / 04 copies them next to the run's variant
+(`scripts/fetch_sparse.py`) and evaluates the run's checkpoint without retraining, in two modes:
+`both` (map and queries from the sparse sensor) and `query` (map from 64 beams, queries sparse;
+`--query_dir` of the evaluation scripts). Results: `<run>/eval/sparsity/<checkpoint>/summary.csv`
+(R@1 per sequence, beams and mode, with the heading groups) and `sparsity.png`.
+
 ## Checks of the NDT cells (`src/lpr/ndt_check.py`, notebook 03)
 
 Built into every extraction (`extract_ndt.py`, in Colab and on Azure): for every scan, how well the cells cover

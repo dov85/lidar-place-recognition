@@ -139,7 +139,96 @@ def compass(a, params, ckpt, out):
     return not missing
 
 
-FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass}
+def sparsity(a, params, ckpt, out):
+    """Recall with 64 beams (the run's variant) and with fewer beams (its sparse variants,
+    folders next to --data_dir), map and queries sparse ("both") or queries only ("query")."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from lpr import experiments as ex
+    data = "bev" if a.method == "bev" else "ndt"
+    base = os.path.basename(os.path.normpath(a.data_dir))
+    try:
+        base_params = json.load(open(os.path.join(a.data_dir, "config.json")))["params"]
+    except (OSError, ValueError, KeyError):
+        raise SystemExit(f"no config.json with the parameters of the variant in {a.data_dir}")
+    if base_params.get("beams", 64) != 64:
+        raise SystemExit("sparsity starts from a 64-beam variant")
+    script = "eval_bev_kitti.py" if a.method == "bev" else "eval_ndt_kitti.py"
+    arg = "--bev_dir" if a.method == "bev" else "--ndt_dir"
+
+    def run_one(folder, db_dir, query_dir, seqs):
+        os.makedirs(folder, exist_ok=True)
+        done, missing = [], []
+        for s in seqs:
+            if not (has_data(a.method, db_dir, s) and has_data(a.method, query_dir, s)):
+                missing.append(s)
+                continue
+            res = os.path.join(folder, f"eval_{s}.json")
+            same = os.path.exists(res) and \
+                evals.ckpt_name(json.load(open(res)).get("ckpt", "")) == evals.ckpt_name(ckpt)
+            if not same or a.force:
+                print(f"  {os.path.basename(folder)} {s}: evaluating", flush=True)
+                cmd = [PY, os.path.join(ROOT, "scripts", script), "--ckpt", ckpt, arg, db_dir,
+                       "--kitti_root", a.kitti_root, "--seq", s, "--out", res]
+                if query_dir != db_dir:
+                    cmd += ["--query_dir", query_dir]
+                run(cmd)
+            done.append(s)
+        if done:
+            run([PY, os.path.join(ROOT, "scripts", "heading_analysis.py"), "--kitti_root",
+                 a.kitti_root, "--seqs", *done, "--out_dir", folder, "--matches_dir", folder])
+            evals.write_seqs_summary(folder, done)
+        return done, missing
+
+    tables, all_missing = [], []
+    done, missing = run_one(os.path.join(out, "beams64"), a.data_dir, a.data_dir, params["seqs"])
+    all_missing += [("64", s) for s in missing]
+    if done:
+        t = pd.read_csv(os.path.join(out, "beams64", "summary.csv"), dtype={"seq": str})
+        for mode in params["modes"]:   # 64 beams: both modes are the same evaluation
+            tables.append(t.assign(beams=64, mode=mode))
+    for b in params["beams"]:
+        name, _ = ex.sparse_variant(data, base, base_params, b)
+        sdir = os.path.join(os.path.dirname(os.path.normpath(a.data_dir)), name)
+        if not os.path.isdir(sdir):
+            print(f"  {b} beams: variant {name} not found at {sdir} (skipped)")
+        for mode in params["modes"]:
+            folder = os.path.join(out, f"beams{b}_{mode}")
+            db_dir = sdir if mode == "both" else a.data_dir
+            done, missing = run_one(folder, db_dir, sdir, params["seqs"])
+            all_missing += [(f"{b} {mode}", s) for s in missing]
+            if done:
+                t = pd.read_csv(os.path.join(folder, "summary.csv"), dtype={"seq": str})
+                tables.append(t.assign(beams=b, mode=mode, variant=name))
+    if all_missing:
+        print("  no data for", all_missing, "(skipped; the evaluation stays incomplete)")
+    if not tables:
+        return False
+    table = pd.concat(tables, ignore_index=True)
+    cols = ["beams", "mode"] + [c for c in table.columns if c not in ("beams", "mode")]
+    table = table[cols].sort_values(["mode", "seq", "beams"], ascending=[True, True, False])
+    table.to_csv(os.path.join(out, "summary.csv"), index=False)
+    fig, axes = plt.subplots(1, len(params["modes"]), figsize=(6 * len(params["modes"]), 4),
+                             squeeze=False)
+    for ax, mode in zip(axes[0], params["modes"]):
+        for seq, g in table[table["mode"] == mode].groupby("seq"):
+            ax.plot(g["beams"], g["R@1"], "o-", label=f"KITTI {seq}")
+        ax.set_xticks([64] + list(params["beams"]))
+        ax.invert_xaxis()
+        ax.set_xlabel("laser beams")
+        ax.set_ylabel("Recall@1 (%)")
+        ax.set_title({"both": "map and queries sparse", "query": "map 64 beams, queries sparse"}
+                     .get(mode, mode))
+        ax.legend()
+    fig.suptitle(f"sparsity, {a.method}: {os.path.basename(os.path.normpath(a.run_dir))}",
+                 fontsize=9)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "sparsity.png"), dpi=120)
+    return not all_missing
+
+
+FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass, "sparsity": sparsity}
 
 
 def main():

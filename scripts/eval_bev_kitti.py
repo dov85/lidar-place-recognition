@@ -45,6 +45,9 @@ def main():
                     help="compass test: .npy files with one angle per frame for the queries; one "
                          "result per file, written to the matching --outs entry")
     ap.add_argument("--outs", nargs="+", default=None)
+    ap.add_argument("--query_dir", default=None,
+                    help="sparsity test: the queries come from this variant folder (e.g. 16 beams), "
+                         "the database from --bev_dir")
     ap.add_argument("--arch", default="auto", choices=["auto", *bp.ARCHS],
                     help="auto: from the config.json of the checkpoint's run (official: rein)")
     args = ap.parse_args()
@@ -64,9 +67,14 @@ def main():
     sec = (time.time() - t0) / n
     xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
     db, q = kitti.split_indices(args.seq, n)
+    if args.query_dir:   # queries from another variant (same scans, e.g. fewer beams)
+        qpaths = bp.image_paths(args.query_dir, args.seq)
+        desc[q] = bp.infer(model, bp.InferDataset([qpaths[i] for i in q]), DEVICE,
+                           batch=args.batch, workers=args.workers)
     r = recall(desc[db], desc[q], xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
     top1 = r.pop("top1_indices")
-    r.update(seq=args.seq, ckpt=args.ckpt, method="bev", network_seconds_per_scan=sec)
+    r.update(seq=args.seq, ckpt=args.ckpt, method="bev", network_seconds_per_scan=sec,
+             db_dir=args.bev_dir, query_dir=args.query_dir or args.bev_dir)
     print(json.dumps(r, indent=1))
     if args.out:
         with open(args.out, "w") as f:

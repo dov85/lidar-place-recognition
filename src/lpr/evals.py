@@ -31,6 +31,12 @@ EVAL_TYPES = {
     # pose, so map and queries share one orientation; each query also gets a compass error
     # drawn from N(0, sigma^2), for each sigma (degrees). Recall per sequence and sigma, and
     # per heading group (relative to the true headings).
+    # Fewer laser beams (sparsity axis), no retraining: the run's checkpoint on the variants of
+    # its 64-beam variant with 32 / 16 beams (experiments.sparse_variant; built on Azure).
+    # mode "both": map and queries from the sparse sensor; "query": map from the 64-beam
+    # variant, queries from the sparse one. 64 beams (the run's own variant) is included.
+    "sparsity": dict(methods=["ndt", "bev", "myndt"],
+                     params=dict(seqs=ALL_SEQS, beams=[32, 16], modes=["both", "query"])),
     "compass": dict(methods=["ndt", "bev", "myndt"],
                     params=dict(seqs=ALL_SEQS, sigma_deg=[0, 2, 5, 10, 20, 45], seed=0)),
 }
