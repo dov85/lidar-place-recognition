@@ -188,7 +188,8 @@ The sparse variants of a 64-beam variant are named by `experiments.sparse_varian
 `METHOD=ndt VARIANT=2026-10-04_beams16_ec17f5 ARGS="--beams 16" CELL_SEQS="00 02 05 06 08" bash scripts/azure_build.sh "<SAS URL>"`
 (BEV: `METHOD=bev VARIANT=2026-10-05_beams16_50ef74 ARGS="--beams 16"`; 32 beams: `_beams32_c9807e` / `_beams32_9d369f`).
 
-`EVALS = [..., "sparsity"]` in notebooks 01 / 02 / 04 copies them next to the run's variant
+All runs at once: `notebooks/05_sparsity_all_runs.ipynb` (every finished run and the official BEVPlace++
+checkpoint, then one table). For a single run, `EVALS = [..., "sparsity"]` in notebooks 01 / 02 / 04 copies them next to the run's variant
 (`scripts/fetch_sparse.py`) and evaluates the run's checkpoint without retraining, in two modes:
 `both` (map and queries from the sparse sensor) and `query` (map from 64 beams, queries sparse;
 `--query_dir` of the evaluation scripts). Results: `<run>/eval/sparsity/<checkpoint>/summary.csv`
