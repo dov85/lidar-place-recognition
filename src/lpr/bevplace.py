@@ -95,6 +95,16 @@ class TrainingDataset(data.Dataset):
             self.negatives.append(indexes[np.where(dises[indexes] > neg_thr)[0]])
         self.mining = False
         self.h5feat = None  # descriptor cache (official: HDF5 file read into memory)
+        self.beam_dirs = None   # beam_aug: variant folders to draw every sample from
+
+    def sample_path(self, i):
+        """Path of training sample i; with beam_aug, from a random one of beam_dirs (the same
+        scan with another number of laser beams)."""
+        path = self.imgs_path[i]
+        if self.beam_dirs:
+            d = self.beam_dirs[np.random.randint(len(self.beam_dirs))]
+            path = os.path.join(d, os.path.basename(os.path.dirname(path)), os.path.basename(path))
+        return path
 
     def __getitem__(self, index):
         if self.mining:
@@ -118,7 +128,7 @@ class TrainingDataset(data.Dataset):
     def load(self, i):
         """One training sample as float32 (with the random rotation). Subclasses load other
         data (src/lpr/myndt.py: NDT cells) and keep the rest of the recipe."""
-        img = cv2.imread(self.imgs_path[i])
+        img = cv2.imread(self.sample_path(i))
         if self.rot_aug:
             img = _rotate(img)
         return (img.transpose(2, 0, 1) / 256).astype(np.float32)

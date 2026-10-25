@@ -195,6 +195,12 @@ checkpoint, then one table). For a single run, `EVALS = [..., "sparsity"]` in no
 `--query_dir` of the evaluation scripts). Results: `<run>/eval/sparsity/<checkpoint>/summary.csv`
 (R@1 per sequence, beams and mode, with the heading groups) and `sparsity.png`.
 
+Density augmentation in training (`beam_aug`, every method): e.g. `TRAIN_PARAMS = dict(beam_aug=[64, 32, 16])` draws
+every training sample from the run's variant or one of its 32 / 16-beam variants at random (the same scan with
+fewer rings; the notebooks copy the training sequence of those variants with `fetch_sparse.py`). It targets the
+"query" mode, where runs trained with random rotations fail: `scripts/density_check.py` (notebook 05, section 7)
+shows that their descriptor of a 16-beam scan is about as far from the same scan with 64 beams as from other places.
+
 ## Checks of the NDT cells (`src/lpr/ndt_check.py`, notebook 03)
 
 Built into every extraction (`extract_ndt.py`, in Colab and on Azure): for every scan, how well the cells cover

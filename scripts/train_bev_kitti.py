@@ -29,7 +29,8 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 from lpr import bevplace as bp  # noqa: E402
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
-from lpr.experiments import BEV_TRAIN_DEFAULTS, full_params, git_commit, run_hash, write_json  # noqa: E402
+from lpr.experiments import (BEV_TRAIN_DEFAULTS, beam_aug_dirs, full_params, git_commit,  # noqa: E402
+                             run_hash, write_json)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -46,6 +47,8 @@ def parse():
               "margin", "seed", "hard_neg_after_epoch"):
         ap.add_argument(f"--{k}", type=type(d[k]), default=d[k])
     ap.add_argument("--no_rot_aug", action="store_true", help="disable the random rotation")
+    ap.add_argument("--beam_aug", type=int, nargs="*", default=[], choices=[64, 32, 16],
+                    help="e.g. 64 32 16: every training sample from one of these numbers of beams")
     ap.add_argument("--arch", default=d["arch"], choices=list(bp.ARCHS),
                     help="rein (official) or plain (same CNN + NetVLAD, no rotations)")
     ap.add_argument("--workers", type=int, default=2)
@@ -119,6 +122,16 @@ def main():
     xyz = kitti.positions(poses)
     train_set = bp.TrainingDataset(paths, poses.reshape(len(poses), 12), args.train_frames,
                                    args.pos_thr, args.neg_thr, args.negatives, args.rot_aug)
+    if args.beam_aug:   # the same scans with other numbers of beams (fetch_sparse.py)
+        if getattr(args, "rot_points", 0):
+            raise SystemExit("beam_aug and rot_points cannot be combined")
+        train_set.beam_dirs = beam_aug_dirs(args.bev_dir, "bev", args.beam_aug)
+        for d in train_set.beam_dirs:
+            have = len(os.listdir(os.path.join(d, args.seq))) if os.path.isdir(os.path.join(d, args.seq)) else 0
+            if have < len(train_set):
+                raise SystemExit(f"beam_aug: {d}/{args.seq} has {have} files, {len(train_set)} needed "
+                                 "(copy the sparse variants with scripts/fetch_sparse.py)")
+        print("beam_aug: training samples from", [os.path.basename(d) for d in train_set.beam_dirs])
     model = bp.build_model(args.official, args.arch).to(DEVICE)
     print("network:", args.arch, f"({len(model.rem.angles)} rotation(s) per image)")
     opt = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)

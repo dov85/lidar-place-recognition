@@ -56,7 +56,7 @@ class TrainingDataset(bp.TrainingDataset):
                                  f"(e.g. frame {missing[0]}): build them first")
 
     def load(self, i):
-        path = self.imgs_path[i]
+        path = self.sample_path(i)
         if self.rot_points:
             path = os.path.join(self.ndt_dir, rot_dir_name(self.seq, self.rot_points),
                                 f"{i:06d}_{np.random.randint(self.rot_points)}.bin")

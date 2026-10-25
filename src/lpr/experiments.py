@@ -65,6 +65,9 @@ BEV_TRAIN_DEFAULTS = dict(  # official BEVPlace++ values (main.py, kitti_dataset
     seed=1024,
     hard_neg_after_epoch=0,  # N > 0: random negatives in epochs 1..N, hard mining from epoch N+1
                            # (as NDT-Transformer, N=5); 0 = hard mining from the start (official)
+    beam_aug=[],          # e.g. [64, 32, 16]: every training sample from one of these numbers of laser
+                          # beams, drawn at random (the 32 / 16-beam variants of the run's variant,
+                          # experiments.sparse_variant); [] = only the run's own variant
     arch="rein",           # "rein": the official network (8 rotations of the image through the
                            # CNN, max over rotations, NetVLAD); "plain": the same CNN and NetVLAD
                            # with one pass and no rotations (no built-in rotation invariance)
@@ -97,6 +100,10 @@ MYNDT_TRAIN_DEFAULTS = dict(
                            # (as NDT-Transformer, N=5); 0 = hard mining from the start (BEVPlace++)
     rot_points=0,          # N > 0: training clouds from the N point-rotated copies of the variant
                            # (as TRAIN_DEFAULTS rot_points); with rot_aug the copy is rotated too
+    beam_aug=[],           # e.g. [64, 32, 16]: every training sample from one of these numbers of laser
+                          # beams, drawn at random (the 32 / 16-beam variants of the run's variant,
+                          # experiments.sparse_variant); [] = only the run's own variant
+
     amp=True,              # mixed precision (GPU memory; 8 rotations x 2000 cells per cloud)
     # ... network:
     stn=False,             # T-Net (STN3d) of NDT-Transformer before the encoder
@@ -130,13 +137,17 @@ TRAIN_DEFAULTS = dict(
     rot_points=0,         # N > 0: every training cloud is taken from one of N copies of its scan
                           # whose raw points were rotated by a random angle before the cells were
                           # built (cells_<seq>_rot<N>.tar of the variant, built on Azure)
+    beam_aug=[],          # e.g. [64, 32, 16]: every training sample from one of these numbers of laser
+                          # beams, drawn at random (the 32 / 16-beam variants of the run's variant,
+                          # experiments.sparse_variant); [] = only the run's own variant
 )
 
 # Parameters added after runs already existed: left out of the run hash while they have
 # these values, so the existing runs keep their names (see run_hash).
-HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 0},
-                "bev": {"arch": "rein", "hard_neg_after_epoch": 0},
-                "myndt": {"hard_neg_after_epoch": 0}}
+HASH_OMIT_IF = {"ndt": {"cov_transform": False, "rot_aug": False, "rot_points": 0,
+                        "beam_aug": []},
+                "bev": {"arch": "rein", "hard_neg_after_epoch": 0, "beam_aug": []},
+                "myndt": {"hard_neg_after_epoch": 0, "beam_aug": []}}
 
 
 # Preprocessing parameters added after variants already existed: left out of the variant
@@ -295,6 +306,16 @@ def sparse_variant(method, base_variant, base_params, beams):
     defaults = method_defaults(method)[0]
     p = full_params(defaults, dict(base_params, beams=beams))
     return f"{base_variant[:10]}_beams{beams}_{ndt_hash(p)}", p
+
+
+def beam_aug_dirs(data_dir, method, beams):
+    """Folders of the training samples for beam_aug: the variant itself for 64 beams, its
+    sparse variants (next to it, as fetch_sparse.py puts them) for fewer."""
+    base = os.path.basename(os.path.normpath(data_dir))
+    params = json.load(open(os.path.join(data_dir, "config.json")))["params"]
+    return [data_dir if int(b) == 64 else
+            os.path.join(os.path.dirname(os.path.normpath(data_dir)),
+                         sparse_variant(method, base, params, int(b))[0]) for b in beams]
 
 
 def ndt_hash(ndt_params_full):

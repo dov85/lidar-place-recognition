@@ -41,8 +41,8 @@ from sklearn.neighbors import KDTree  # noqa: E402
 from lpr import kitti  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
 from lpr.rotation import rotate_cells  # noqa: E402
-from lpr.experiments import (TRAIN_DEFAULTS, full_params, git_commit, rot_dir_name,  # noqa: E402
-                             run_hash, write_json)
+from lpr.experiments import (TRAIN_DEFAULTS, beam_aug_dirs, full_params, git_commit,  # noqa: E402
+                             rot_dir_name, run_hash, write_json)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CELLS = 2000
@@ -85,17 +85,24 @@ def parse():
                     help="T-Net also transforms the covariances (T^T Sigma T), as in the paper; "
                          "the official code leaves this off")
     ap.add_argument("--ndt_variant", default="", help="name of the NDT variant (recorded)")
+    ap.add_argument("--beam_aug", type=int, nargs="*", default=[], choices=[64, 32, 16],
+                    help="e.g. 64 32 16: every training cloud from one of these numbers of beams "
+                         "(the sparse variants next to --ndt_dir)")
     return ap.parse_args()
 
 
 # ----------------------------------------------------------------------------- data
 _official_load_pc_file = lp.load_pc_file
 ROT_POINTS = {"copies": 0}   # > 0 only while a training tuple is loaded
+BEAM_AUG = {"dirs": [], "active": False}   # beam_aug folders; active only for training tuples
 
 
 def _load_pc_file(filename, number_points=NUM_CELLS):
     """Official loader; while ROT_POINTS is active, "<seq>/<idx>.bin" is read from a random
     point-rotated copy "<seq>_rot<N>/<idx>_<copy>.bin" instead."""
+    if BEAM_AUG["active"] and BEAM_AUG["dirs"]:   # same scan, random number of beams
+        filename = os.path.join(BEAM_AUG["dirs"][np.random.randint(len(BEAM_AUG["dirs"]))],
+                                filename)
     n = ROT_POINTS["copies"]
     if n:
         seq, name = os.path.split(filename)
@@ -122,11 +129,13 @@ def load_tuple_batch(queries, keys, args, latent):
             _, ind = KDTree(latent[cand]).query(q_vec[None], k=min(10, len(cand)))
             hard = np.array(cand)[ind[0]].tolist()
         ROT_POINTS["copies"] = args.rot_points   # training clouds only (not hard mining, eval)
+        BEAM_AUG["active"] = True
         try:
             t = lp.get_query_tuple(entry, args.positives, args.negatives, queries,
                                    hard_neg=hard, other_neg=True)
         finally:
             ROT_POINTS["copies"] = 0
+            BEAM_AUG["active"] = False
         if t[3].shape[0] != NUM_CELLS:
             return None
         if args.rot_aug:   # one random angle per cloud
@@ -266,6 +275,17 @@ def main():
                              f"{rdir}, e.g. {missing[:3]} (extract_ndt.py --rot_copies "
                              f"{args.rot_points})")
         print(f"rot_points: training clouds from {rdir} ({args.rot_points} copies per scan)")
+    if args.beam_aug:
+        if args.rot_points:
+            raise SystemExit("beam_aug and rot_points cannot be combined")
+        BEAM_AUG["dirs"] = beam_aug_dirs(args.ndt_dir, "ndt", args.beam_aug)
+        for d in BEAM_AUG["dirs"]:
+            miss = [q["query"] for q in queries.values()
+                    if not os.path.exists(os.path.join(d, q["query"]))]
+            if miss:
+                raise SystemExit(f"beam_aug: {len(miss)} training clouds missing in {d}, e.g. "
+                                 f"{miss[:2]} (copy the sparse variants with fetch_sparse.py)")
+        print("beam_aug: training clouds from", [os.path.basename(d) for d in BEAM_AUG["dirs"]])
     model = official_model.NDTNetVlad(num_points=NUM_CELLS, output_dim=DESC_DIM,
                                       emb_dims=1024, layer_number=3).to(DEVICE)
     model.Transformer.convariance_transform = args.cov_transform  # official switch, off by default

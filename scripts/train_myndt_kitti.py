@@ -34,8 +34,8 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 from lpr import bevplace as bp  # noqa: E402
 from lpr import kitti, myndt  # noqa: E402
 from lpr.evaluation import recall  # noqa: E402
-from lpr.experiments import (MYNDT_TRAIN_DEFAULTS, full_params, git_commit, run_hash,  # noqa: E402
-                             write_json)
+from lpr.experiments import (MYNDT_TRAIN_DEFAULTS, beam_aug_dirs, full_params, git_commit,  # noqa: E402
+                             run_hash, write_json)
 from lpr.models import ndt_net  # noqa: E402
 from lpr.models.heads import HEADS  # noqa: E402
 
@@ -56,6 +56,8 @@ def parse():
               "margin", "seed", "hard_neg_after_epoch", "rot_points", "rotations", "feat_dim"):
         ap.add_argument(f"--{k}", type=type(d[k]), default=d[k])
     ap.add_argument("--head", default=d["head"], choices=list(HEADS))
+    ap.add_argument("--beam_aug", type=int, nargs="*", default=[], choices=[64, 32, 16],
+                    help="e.g. 64 32 16: every training sample from one of these numbers of beams")
     for k in ("rot_aug", "amp", "stn", "cov_transform"):   # booleans: --x / --no_x
         ap.add_argument(f"--{k}", dest=k, action="store_true")
         ap.add_argument(f"--no_{k}", dest=k, action="store_false")
@@ -135,6 +137,16 @@ def main():
     train_set = myndt.TrainingDataset(args.ndt_dir, args.seq, poses.reshape(len(poses), 12),
                                       args.train_frames, args.pos_thr, args.neg_thr,
                                       args.negatives, args.rot_aug, args.rot_points)
+    if args.beam_aug:   # the same scans with other numbers of beams (fetch_sparse.py)
+        if getattr(args, "rot_points", 0):
+            raise SystemExit("beam_aug and rot_points cannot be combined")
+        train_set.beam_dirs = beam_aug_dirs(args.ndt_dir, "ndt", args.beam_aug)
+        for d in train_set.beam_dirs:
+            have = len(os.listdir(os.path.join(d, args.seq))) if os.path.isdir(os.path.join(d, args.seq)) else 0
+            if have < len(train_set):
+                raise SystemExit(f"beam_aug: {d}/{args.seq} has {have} files, {len(train_set)} needed "
+                                 "(copy the sparse variants with scripts/fetch_sparse.py)")
+        print("beam_aug: training samples from", [os.path.basename(d) for d in train_set.beam_dirs])
     model = ndt_net.build(params).to(DEVICE)
     print(f"network: T-Net {'on' if args.stn else 'off'}, {args.rotations} rotation(s) per "
           f"cloud, head {args.head}, {args.feat_dim} channels per cell, descriptor "
