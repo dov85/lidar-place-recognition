@@ -318,6 +318,15 @@ def beam_aug_dirs(data_dir, method, beams):
                          sparse_variant(method, base, params, int(b))[0]) for b in beams]
 
 
+def ground_check_tag(ndt_params, n_scans):
+    """Folder name of a ground check (scripts/ground_coverage.py, notebook 06,
+    scripts/azure_ground_check.sh): hash of the NDT parameters without 'ground' (both
+    modes are run) and the number of scans."""
+    full = {**NDT_DEFAULTS, **ndt_params}
+    full.pop("ground")
+    return ndt_hash(dict(full, n_scans=int(n_scans)))
+
+
 def ndt_hash(ndt_params_full):
     """Hash of a preprocessing variant (NDT or BEV)."""
     p = {k: v for k, v in ndt_params_full.items()
