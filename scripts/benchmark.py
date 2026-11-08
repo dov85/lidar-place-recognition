@@ -13,6 +13,13 @@ Networks, on the GPU if there is one (random weights: time and memory do not dep
   train_peak_mb      peak GPU memory of one training step with the batch of the run's recipe
                      (forward + backward, AMP as in the runs)
   params             exact number of parameters
+  train_step_s       time of one training step with the recipe's batch (AMP, Adam; split into one
+                     tuple per pass if the batch does not fit, as the training does)
+  epoch_min_est      steps per epoch x step time + the descriptor caches for hard-negative mining
+                     (estimate on the same GPU for every method; no data loading)
+  retrieval_ms       nearest neighbour of one query in a map of --db_size descriptors (CPU, numpy)
+  query_total_ms     preprocessing + descriptor + retrieval: one localisation from a raw scan
+comparison.csv: all of it in one table, one row per network.
 
   python scripts/benchmark.py --kitti_root /content/kitti --seq 08 --n 50 --out_dir <drive>/benchmark
 """
@@ -70,23 +77,34 @@ def preprocessing(a):
     return rows
 
 
+# Training recipes (per epoch, 3000 training frames of sequence 00):
+#   NDT-Transformer: 2 queries per step, each 1 + 2 positives + 18 negatives + 1 other = 22 clouds;
+#     1500 steps; the descriptor cache for hard negatives is refreshed every 700 steps from epoch 6
+#     (steps 29, 729, 1429: 3 per epoch in 15 of 20 epochs = 2.25 per epoch on average)
+#   BEVPlace++ (also the own NDT network): 4 queries per step, each 1 + 1 positive + 10 negatives =
+#     12 samples; 750 steps; the cache of all 3000 frames is rebuilt once per epoch
+RECIPES = {"ndt": dict(tuple_size=22, tuples=2, steps=1500, caches_per_epoch=2.25),
+           "bev": dict(tuple_size=12, tuples=4, steps=750, caches_per_epoch=1.0)}
+TRAIN_FRAMES = 3000
+EPOCHS = 20
+
+
 def networks():
-    """(name, model, input maker, recipe batch for one training step)."""
+    """(name, model maker, input maker, recipe, preprocessing column of the representation)."""
     from lpr import bevplace as bp
     from lpr.models import ndt_net
     cells = lambda b: torch.randn(b, 1, 2000, 12)
     imgs = lambda b: torch.rand(b, 3, 201, 201)
-    nets = [
-        ("NDT-Transformer (official architecture)", lambda: ndt_net.official_twin(), cells, 2 * (1 + 2 + 18 + 1)),
-        ("own NDT, REIN (8 rotations) + Loupe", lambda: ndt_net.NDTNet(stn=False, rotations=8, head="loupe",
-                                                                      feat_dim=1028),   # as the runs
-         cells, 4 * (1 + 1 + 10)),
-        ("own NDT, T-Net + NetVLAD (128)", lambda: ndt_net.NDTNet(stn=True, rotations=1, head="vlad",
-                                                                 feat_dim=128), cells, 4 * (1 + 1 + 10)),
-        ("BEVPlace++ plain", lambda: bp.build_model(None, "plain"), imgs, 4 * (1 + 1 + 10)),
-        ("BEVPlace++ REIN", lambda: bp.build_model(None, "rein"), imgs, 4 * (1 + 1 + 10)),
+    return [
+        ("NDT-Transformer (official architecture)", lambda: ndt_net.official_twin(), cells, "ndt", "ndt_total"),
+        ("own NDT, REIN (8 rotations) + Loupe",
+         lambda: ndt_net.NDTNet(stn=False, rotations=8, head="loupe", feat_dim=1028),   # as the runs
+         cells, "bev", "ndt_total"),
+        ("own NDT, T-Net + NetVLAD (128)",
+         lambda: ndt_net.NDTNet(stn=True, rotations=1, head="vlad", feat_dim=128), cells, "bev", "ndt_total"),
+        ("BEVPlace++ plain", lambda: bp.build_model(None, "plain"), imgs, "bev", "bev_image"),
+        ("BEVPlace++ REIN", lambda: bp.build_model(None, "rein"), imgs, "bev", "bev_image"),
     ]
-    return nets
 
 
 def last(y):
@@ -111,7 +129,7 @@ def peak_mb():
 def network_rows(a):
     torch.backends.mha.set_fastpath_enabled(False)   # as in the evaluation of the own NDT network
     rows = []
-    for name, make, inp, train_batch in networks():
+    for name, make, inp, recipe, pre_col in networks():
         if "BEV" in name and DEVICE.type != "cuda":
             print(f"  {name}: skipped (the official REIN code needs a GPU)")
             continue
@@ -125,6 +143,7 @@ def network_rows(a):
             x1 = inp(1).to(DEVICE)
             for _ in range(3):
                 last(model(x1))
+            desc_dim = last(model(x1)).shape[-1]
             peak_reset()
             ts = []
             for _ in range(a.reps):
@@ -140,29 +159,68 @@ def network_rows(a):
                 last(model(xb))
             sync()
             per_scan_batch = (time.perf_counter() - t0) / (3 * b)
-        train_mb = float("nan")
+        rec = RECIPES[recipe]
+        train_mb, step_s, split = float("nan"), float("nan"), False
         if DEVICE.type == "cuda" and not a.skip_train:
             model.train()
             opt = torch.optim.Adam(model.parameters(), lr=1e-5)
+            scaler = torch.amp.GradScaler("cuda")
+            xt = inp(rec["tuple_size"] * rec["tuples"]).to(DEVICE)
+
+            def step(chunks):
+                for xc in torch.chunk(xt, chunks):
+                    with torch.autocast("cuda", dtype=torch.float16):
+                        loss = last(model(xc)).float().pow(2).sum()
+                    scaler.scale(loss).backward()
+                scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
+
+            chunks = 1
             peak_reset()
             try:
-                xt = inp(train_batch).to(DEVICE)
-                with torch.autocast("cuda", dtype=torch.float16):
-                    loss = last(model(xt)).float().pow(2).sum()
-                loss.backward(); opt.step(); opt.zero_grad(); sync()
-                train_mb = peak_mb()
+                step(1); sync()
             except torch.cuda.OutOfMemoryError:
-                train_mb = -1.0   # does not fit in one pass (the training splits the batch)
-            del opt
-        rows.append(dict(network=name, params=n_params, rotations=rot,
+                # as the training does: one tuple per forward pass, accumulated gradients
+                opt.zero_grad(set_to_none=True); peak_reset()
+                chunks, split = rec["tuples"], True
+                step(chunks); sync()
+            train_mb = peak_mb()
+            t0 = time.perf_counter()
+            for _ in range(a.train_reps):
+                step(chunks)
+            sync()
+            step_s = (time.perf_counter() - t0) / a.train_reps
+            del opt, xt
+        dim = int(desc_dim)
+        cache_s = TRAIN_FRAMES * per_scan_batch
+        epoch_min = (rec["steps"] * step_s + rec["caches_per_epoch"] * cache_s) / 60
+        rows.append(dict(network=name, params=n_params, rotations=rot, descriptor_dim=dim,
+                         descriptor_kb=dim * 4 / 1024,
                          ms_per_scan_b1=1000 * float(np.median(ts)),
                          ms_per_scan_batch=1000 * per_scan_batch, batch=b,
-                         infer_peak_mb=infer_mb, train_batch=train_batch, train_peak_mb=train_mb))
+                         infer_peak_mb=infer_mb, recipe=recipe,
+                         train_batch=rec["tuple_size"] * rec["tuples"], train_split=split,
+                         train_peak_mb=train_mb, train_step_s=step_s, steps_per_epoch=rec["steps"],
+                         cache_s=cache_s, epoch_min_est=epoch_min,
+                         train_hours_est=EPOCHS * epoch_min / 60, preprocessing=pre_col))
         print(f"  {name}: {rows[-1]['ms_per_scan_b1']:.1f} ms/scan, {n_params / 1e6:.2f} M params",
               flush=True)
         del model
         peak_reset()
     return rows
+
+
+def retrieval_ms(dim, n_db, n_q=200, seed=0):
+    """Nearest neighbour of one query among n_db descriptors (brute force, as the evaluation)."""
+    rng = np.random.default_rng(seed)
+    db = rng.standard_normal((n_db, dim)).astype(np.float32)
+    db_sq = (db ** 2).sum(1)
+    qs = rng.standard_normal((n_q, dim)).astype(np.float32)
+    ts = []
+    for q in qs:
+        t0 = time.perf_counter()
+        int(np.argmin(db_sq - 2 * db @ q))
+        ts.append(time.perf_counter() - t0)
+    return 1000 * float(np.median(ts))
 
 
 def main():
@@ -173,6 +231,8 @@ def main():
     ap.add_argument("--reps", type=int, default=20, help="batch-1 repetitions per network")
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--skip_train", action="store_true")
+    ap.add_argument("--train_reps", type=int, default=5, help="timed training steps per network")
+    ap.add_argument("--db_size", type=int, default=3000, help="map size for the retrieval time")
     ap.add_argument("--out_dir", required=True)
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
@@ -188,15 +248,38 @@ def main():
             "n_raw", "n_after_ground"]
     pre_sum = pre[cols].agg(["mean", "median"]).T.round(4)
     print("networks on", DEVICE)
-    net = pd.DataFrame(network_rows(a)).round(2)
+    net = pd.DataFrame(network_rows(a))
+    pre_mean = pre[cols].mean()
+    net["retrieval_ms"] = [retrieval_ms(d, a.db_size) for d in net.descriptor_dim]
+    net["query_total_ms"] = (1000 * net.preprocessing.map(pre_mean) + net.ms_per_scan_b1 + net.retrieval_ms)
+    net["map_mb"] = net.descriptor_kb * a.db_size / 1024
+    net = net.round(3)
     net.to_csv(os.path.join(a.out_dir, "networks.csv"), index=False)
+    comp = pd.DataFrame({
+        "network": net.network,
+        "query: preprocessing (ms)": (1000 * net.preprocessing.map(pre_mean)).round(1),
+        "query: descriptor (ms)": net.ms_per_scan_b1.round(1),
+        f"query: retrieval in {a.db_size} (ms)": net.retrieval_ms.round(2),
+        "query: total (ms)": net.query_total_ms.round(1),
+        "inference GPU (MB)": net.infer_peak_mb.round(0),
+        "train step (s)": net.train_step_s.round(3),
+        "train GPU (GB)": (net.train_peak_mb / 1024).round(2),
+        "epoch, est. (min)": net.epoch_min_est.round(1),
+        f"{EPOCHS} epochs, est. (h)": net.train_hours_est.round(2),
+        "descriptor (KB)": net.descriptor_kb.round(1),
+        f"map of {a.db_size} (MB)": net.map_mb.round(1),
+        "params (M)": (net.params / 1e6).round(2),
+    })
+    comp.to_csv(os.path.join(a.out_dir, "comparison.csv"), index=False)
     summary = dict(machine=machine, seq=a.seq, scans=len(pre),
                    preprocessing_seconds_per_scan=pre_sum["mean"].to_dict(),
-                   networks=net.to_dict(orient="records"))
+                   networks=net.to_dict(orient="records"),
+                   notes="training time estimated from timed steps on random inputs (no data loading); "
+                         "cache = descriptors of the 3000 training frames for hard-negative mining")
     with open(os.path.join(a.out_dir, "benchmark.json"), "w") as f:
         json.dump(summary, f, indent=1)
     print(pre_sum.to_string())
-    print(net.to_string(index=False))
+    print(comp.T.to_string())
 
 
 if __name__ == "__main__":

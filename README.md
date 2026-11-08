@@ -232,7 +232,10 @@ without ground removal is notebook 04 with `NDT_TAG = "ground_none"`, `NDT_PARAM
 `scripts/benchmark.py`: on N raw scans, the time per scan of every preprocessing step on the CPU (crop + ground
 removal, G with and without the ground, BEV image) and the stored size per scan; for every network (random
 weights), the time per descriptor (batch 1 and batched), the peak GPU memory of inference and of one training
-step with the recipe's batch (AMP), and the exact number of parameters. `scripts/figure_method.py`: one scan as
+step with the recipe's batch (AMP), the time of a training step and an epoch / 20-epoch estimate on that GPU
+(steps per epoch x step time + the descriptor caches for hard negatives; no data loading), the retrieval time in a
+map of 3000 descriptors, the total time of one localisation (preprocessing + descriptor + retrieval), and the exact
+number of parameters; all in `comparison.csv`. `scripts/figure_method.py`: one scan as
 points, NDT cells and BEV image. Results: `MyDrive/lpr/benchmark/` (`benchmark.json`, `networks.csv`,
 `preprocessing_per_scan.csv`, `fig_method.png`).
 
