@@ -13,8 +13,9 @@ Networks, on the GPU if there is one (random weights: time and memory do not dep
   train_peak_mb      peak GPU memory of one training step with the batch of the run's recipe
                      (forward + backward, AMP as in the runs)
   params             exact number of parameters
-  train_step_s       time of one training step with the recipe's batch (AMP, Adam; split into one
-                     tuple per pass if the batch does not fit, as the training does)
+  train_step_s       time of one training step with the recipe's batch (AMP, Adam). If the batch does
+                     not fit in one pass: one tuple per pass (as the training does), else 4 samples per
+                     pass; train_split says which (OOM: not even that)
   epoch_min_est      steps per epoch x step time + the descriptor caches for hard-negative mining
                      (estimate on the same GPU for every method; no data loading)
   retrieval_ms       nearest neighbour of one query in a map of --db_size descriptors (CPU, numpy)
@@ -24,6 +25,7 @@ comparison.csv: all of it in one table, one row per network.
   python scripts/benchmark.py --kitti_root /content/kitti --seq 08 --n 50 --out_dir <drive>/benchmark
 """
 import argparse
+import gc
 import json
 import os
 import platform
@@ -160,7 +162,7 @@ def network_rows(a):
             sync()
             per_scan_batch = (time.perf_counter() - t0) / (3 * b)
         rec = RECIPES[recipe]
-        train_mb, step_s, split = float("nan"), float("nan"), False
+        train_mb, step_s, split = float("nan"), float("nan"), "not measured"
         if DEVICE.type == "cuda" and not a.skip_train:
             model.train()
             opt = torch.optim.Adam(model.parameters(), lr=1e-5)
@@ -174,21 +176,34 @@ def network_rows(a):
                     scaler.scale(loss).backward()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
 
-            chunks = 1
-            peak_reset()
-            try:
-                step(1); sync()
-            except torch.cuda.OutOfMemoryError:
-                # as the training does: one tuple per forward pass, accumulated gradients
-                opt.zero_grad(set_to_none=True); peak_reset()
-                chunks, split = rec["tuples"], True
-                step(chunks); sync()
-            train_mb = peak_mb()
-            t0 = time.perf_counter()
-            for _ in range(a.train_reps):
-                step(chunks)
-            sync()
-            step_s = (time.perf_counter() - t0) / a.train_reps
+            def try_step(chunks):
+                try:
+                    step(chunks); sync()
+                    return True
+                except torch.cuda.OutOfMemoryError:
+                    return False
+
+            # 1 pass for the whole batch; else one tuple per pass with accumulated gradients (as the
+            # training does); else 4 samples per pass (what the training would need on this GPU)
+            n = rec["tuple_size"] * rec["tuples"]
+            chunks = None
+            for c in [1, rec["tuples"], max(1, n // 4)]:
+                opt.zero_grad(set_to_none=True)
+                gc.collect(); peak_reset()           # memory of a failed attempt is freed here
+                if try_step(c):
+                    chunks = c
+                    break
+            if chunks is None:
+                split = "OOM"
+                print(f"  {name}: a training step does not fit on this GPU even with 4 samples per pass")
+            else:
+                split = {1: "no", rec["tuples"]: "one tuple per pass"}.get(chunks, f"{n // chunks} samples per pass")
+                train_mb = peak_mb()
+                t0 = time.perf_counter()
+                for _ in range(a.train_reps):
+                    step(chunks)
+                sync()
+                step_s = (time.perf_counter() - t0) / a.train_reps
             del opt, xt
         dim = int(desc_dim)
         cache_s = TRAIN_FRAMES * per_scan_batch
@@ -205,7 +220,7 @@ def network_rows(a):
         print(f"  {name}: {rows[-1]['ms_per_scan_b1']:.1f} ms/scan, {n_params / 1e6:.2f} M params",
               flush=True)
         del model
-        peak_reset()
+        gc.collect(); peak_reset()
     return rows
 
 
@@ -264,6 +279,7 @@ def main():
         "inference GPU (MB)": net.infer_peak_mb.round(0),
         "train step (s)": net.train_step_s.round(3),
         "train GPU (GB)": (net.train_peak_mb / 1024).round(2),
+        "train batch split": net.train_split,
         "epoch, est. (min)": net.epoch_min_est.round(1),
         f"{EPOCHS} epochs, est. (h)": net.train_hours_est.round(2),
         "descriptor (KB)": net.descriptor_kb.round(1),
