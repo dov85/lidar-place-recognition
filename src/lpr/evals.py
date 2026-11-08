@@ -39,6 +39,11 @@ EVAL_TYPES = {
                      params=dict(seqs=ALL_SEQS, beams=[32, 16], modes=["both", "query"])),
     "compass": dict(methods=["ndt", "bev", "myndt"],
                     params=dict(seqs=ALL_SEQS, sigma_deg=[0, 2, 5, 10, 20, 45], seed=0)),
+    # Rotation curve, no retraining: the map stays as recorded; every query is rotated about z
+    # by its own angle drawn from U[-alpha, alpha] (alpha = 180: any heading). Recall per
+    # sequence and alpha, and per heading group (relative to the true headings).
+    "rotation": dict(methods=["ndt", "bev", "myndt"],
+                     params=dict(seqs=ALL_SEQS, alpha_deg=[0, 5, 15, 45, 90, 180], seed=0)),
 }
 
 

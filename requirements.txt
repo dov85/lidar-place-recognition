@@ -1,4 +1,5 @@
-# torch is preinstalled on Colab; install it separately elsewhere.
+# torch and torchvision are preinstalled on Colab; install them separately elsewhere (tested with torch 2.x).
+# opencv-python is preinstalled on Colab too. Optional: open3d (tests/test_bev_matches_official.py only).
 numpy
 scipy
 scikit-learn
@@ -7,3 +8,5 @@ matplotlib
 requests
 remotezip
 pypatchworkpp
+opencv-python
+faiss-cpu

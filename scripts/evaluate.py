@@ -78,65 +78,99 @@ def tnet(a, params, ckpt, out):
     return True
 
 
-def compass(a, params, ckpt, out):
-    import numpy as np
-    from lpr import kitti
+def yaw_eval(a, ckpt, out, seqs, levels, key, yaw_files, title, xlabel):
+    """Shared by compass and rotation: for every sequence, the database rotated by one .npy of
+    angles and the queries by one .npy per level; results in <out>/<key>_<level>/, a summary
+    with a column <key> and a plot of Recall@1 against the level."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     ydir = os.path.join(out, "yaw")
     os.makedirs(ydir, exist_ok=True)
-    sig_dir = {s: os.path.join(out, f"sigma_{s:g}") for s in params["sigma_deg"]}
-    for d in sig_dir.values():
+    lev_dir = {v: os.path.join(out, f"{key.split('_')[0]}_{v:g}") for v in levels}
+    for d in lev_dir.values():
         os.makedirs(d, exist_ok=True)
     done, missing = [], []
-    for seq in params["seqs"]:
+    for seq in seqs:
         if not has_data(a.method, a.data_dir, seq):
             missing.append(seq)
             continue
         ext = "*.png" if a.method == "bev" else "*.bin"
         n = len(glob.glob(os.path.join(a.data_dir, seq, ext)))
-        outs = [os.path.join(d, f"eval_{seq}.json") for d in sig_dir.values()]
+        outs = [os.path.join(d, f"eval_{seq}.json") for d in lev_dir.values()]
         if a.force or not all(os.path.exists(o) and evals.ckpt_name(json.load(open(o))["ckpt"])
                               == evals.ckpt_name(ckpt) for o in outs):
-            yaw = kitti.velo_yaw_deg(a.kitti_root, seq)[:n]
-            np.save(os.path.join(ydir, f"map_{seq}.npy"), yaw)
-            qfiles = []
-            for s in params["sigma_deg"]:
-                rng = np.random.default_rng([params["seed"], int(seq), int(round(s * 100))])
-                f = os.path.join(ydir, f"query_{seq}_sigma_{s:g}.npy")
-                np.save(f, yaw + rng.normal(0.0, s, n))
-                qfiles.append(f)
+            db_file, q_files = yaw_files(seq, n, ydir)
             script = "eval_bev_kitti.py" if a.method == "bev" else "eval_ndt_kitti.py"
             arg = "--bev_dir" if a.method == "bev" else "--ndt_dir"
-            print(f"  {seq}: evaluating {len(qfiles)} compass errors", flush=True)
+            print(f"  {seq}: evaluating {len(q_files)} levels of {key}", flush=True)
             run([PY, os.path.join(ROOT, "scripts", script), "--ckpt", ckpt, arg, a.data_dir,
                  "--kitti_root", a.kitti_root, "--seq", seq,
-                 "--yaw_db", os.path.join(ydir, f"map_{seq}.npy"), "--yaw_q", *qfiles, "--outs", *outs])
+                 "--yaw_db", db_file, "--yaw_q", *q_files, "--outs", *outs])
         done.append(seq)
     if missing:
         print("  no data for sequences", missing, "(skipped; the evaluation stays incomplete)")
     if not done:
         return False
-    import pandas as pd
     tables = []
-    for s, d in sig_dir.items():
+    for v, d in lev_dir.items():
         run([PY, os.path.join(ROOT, "scripts", "heading_analysis.py"), "--kitti_root", a.kitti_root,
              "--seqs", *done, "--out_dir", d, "--matches_dir", d])
         evals.write_seqs_summary(d, done)
         t = pd.read_csv(os.path.join(d, "summary.csv"), dtype={"seq": str})
-        t.insert(0, "sigma_deg", s)
+        t.insert(0, key, v)
         tables.append(t)
     table = pd.concat(tables, ignore_index=True)
     table.to_csv(os.path.join(out, "summary.csv"), index=False)
     fig, ax = plt.subplots(figsize=(6, 4))
     for seq, g in table.groupby("seq"):
-        ax.plot(g["sigma_deg"], g["R@1"], "o-", label=f"KITTI {seq}")
-    ax.set_xlabel("compass error sigma (deg)"); ax.set_ylabel("Recall@1 (%)")
-    ax.set_title(f"compass, {a.method}: {os.path.basename(os.path.normpath(a.run_dir))}", fontsize=9)
+        ax.plot(g[key], g["R@1"], "o-", label=f"KITTI {seq}")
+    ax.set_xlabel(xlabel); ax.set_ylabel("Recall@1 (%)")
+    ax.set_title(f"{title}, {a.method}: {os.path.basename(os.path.normpath(a.run_dir))}", fontsize=9)
     ax.legend(); fig.tight_layout()
-    fig.savefig(os.path.join(out, "compass.png"), dpi=120)
+    fig.savefig(os.path.join(out, f"{title}.png"), dpi=120)
     return not missing
+
+
+def compass(a, params, ckpt, out):
+    """Map and queries rotated by their heading (one orientation); queries also get a compass
+    error drawn from N(0, sigma^2)."""
+    import numpy as np
+    from lpr import kitti
+
+    def yaw_files(seq, n, ydir):
+        yaw = kitti.velo_yaw_deg(a.kitti_root, seq)[:n]
+        db_file = os.path.join(ydir, f"map_{seq}.npy")
+        np.save(db_file, yaw)
+        q_files = []
+        for s in params["sigma_deg"]:
+            rng = np.random.default_rng([params["seed"], int(seq), int(round(s * 100))])
+            f = os.path.join(ydir, f"query_{seq}_sigma_{s:g}.npy")
+            np.save(f, yaw + rng.normal(0.0, s, n))
+            q_files.append(f)
+        return db_file, q_files
+
+    return yaw_eval(a, ckpt, out, params["seqs"], params["sigma_deg"], "sigma_deg", yaw_files,
+                    "compass", "compass error sigma (deg)")
+
+
+def rotation(a, params, ckpt, out):
+    """Map as recorded; every query rotated about z by its own angle from U[-alpha, alpha]."""
+    import numpy as np
+
+    def yaw_files(seq, n, ydir):
+        db_file = os.path.join(ydir, f"map_{seq}.npy")
+        np.save(db_file, np.zeros(n))
+        q_files = []
+        for al in params["alpha_deg"]:
+            rng = np.random.default_rng([params["seed"], int(seq), int(round(al * 100))])
+            f = os.path.join(ydir, f"query_{seq}_alpha_{al:g}.npy")
+            np.save(f, rng.uniform(-al, al, n))
+            q_files.append(f)
+        return db_file, q_files
+
+    return yaw_eval(a, ckpt, out, params["seqs"], params["alpha_deg"], "alpha_deg", yaw_files,
+                    "rotation", "query rotation amplitude alpha (deg)")
 
 
 def sparsity(a, params, ckpt, out):
@@ -228,7 +262,8 @@ def sparsity(a, params, ckpt, out):
     return not all_missing
 
 
-FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass, "sparsity": sparsity}
+FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass, "sparsity": sparsity,
+         "rotation": rotation}
 
 
 def main():

@@ -201,6 +201,41 @@ fewer rings; the notebooks copy the training sequence of those variants with `fe
 "query" mode, where runs trained with random rotations fail: `scripts/density_check.py` (notebook 05, section 7)
 shows that their descriptor of a 16-beam scan is about as far from the same scan with 64 beams as from other places.
 
+## Rotation curve (evaluation type `rotation`)
+
+The map stays as recorded and every query is rotated about z by its own angle drawn from U[-alpha, alpha]
+(seeded per sequence and alpha), alpha in {0, 5, 15, 45, 90, 180} degrees; Recall per sequence and alpha, with
+the heading groups. Same mechanism as `compass` (`--yaw_db` / `--yaw_q` of the evaluation scripts: NDT cells
+m -> R m, S -> R S R^T; BEV images rotated about their centre). No retraining. All runs at once:
+`notebooks/05_sparsity_all_runs.ipynb` with `EVAL_TYPE = "rotation"` (and `ONLY_RUNS` to pick runs); one run:
+`EVALS = [..., "rotation"]` in notebooks 01 / 02 / 04. Results: `<run>/eval/rotation/<checkpoint>/summary.csv`
+(column `alpha_deg`) and `rotation.png`.
+
+The 08 split of the BEVPlace++ paper (Table II: database 0-2999) differs from the official code (database
+0-999, queries from 1200), which this project follows. `eval_bev_kitti.py --split 3000` (and
+`eval_ndt_kitti.py --split`) evaluates with another split point; notebook 05, section 8 (`SPLIT08_CHECK`)
+runs the official checkpoint with both.
+
+## Ground removal and NDT cells (`scripts/ground_coverage.py`, notebook 06)
+
+For 300 random scans per sequence, the cells are built twice from the same cropped scan, with Patchwork++ ground
+removal (the default) and with the ground kept; Patchwork++ labels every point as ground / non-ground for both.
+Per scan: coverage (% within 0.8 m of a cell mean) of all points, of the non-ground and of the ground points, % of
+cells on the ground, voxel size found by G. On the Azure VM for all sequences:
+`SEQS="02 05 06 08" N_SCANS=300 bash scripts/azure_ground_check.sh "<SAS URL>"`; notebook 06 copies the
+results from the blob container (`ground_check/<tag>/`) and runs what is missing in Colab. The training run
+without ground removal is notebook 04 with `NDT_TAG = "ground_none"`, `NDT_PARAMS = dict(ground="none")`
+(variant `2026-10-26_ground_none_6aebc9`, built on Azure with `ARGS="--ground none"`).
+
+## Resources and the method figure (notebook 07)
+
+`scripts/benchmark.py`: on N raw scans, the time per scan of every preprocessing step on the CPU (crop + ground
+removal, G with and without the ground, BEV image) and the stored size per scan; for every network (random
+weights), the time per descriptor (batch 1 and batched), the peak GPU memory of inference and of one training
+step with the recipe's batch (AMP), and the exact number of parameters. `scripts/figure_method.py`: one scan as
+points, NDT cells and BEV image. Results: `MyDrive/lpr/benchmark/` (`benchmark.json`, `networks.csv`,
+`preprocessing_per_scan.csv`, `fig_method.png`).
+
 ## Checks of the NDT cells (`src/lpr/ndt_check.py`, notebook 03)
 
 Built into every extraction (`extract_ndt.py`, in Colab and on Azure): for every scan, how well the cells cover
@@ -239,6 +274,51 @@ rotated before the cells were built (`extract_ndt.py --rot_copies N`), so the ce
 (axis-aligned crop and voxel grid), as when the vehicle really turns. The angle of copy c of scan i is fixed
 by (seed, sequence, i, c) and stored in `stats_<seq>_rot<N>.csv`. Hard-negative mining and evaluation use the
 unrotated cells, as with `rot_aug`. Both can be combined.
+
+## Reproducing the report
+
+Every number comes from files on Drive written by the notebooks (`runs_summary.csv`, `evals_summary.csv`:
+`scripts/summarize_runs.py`, run by every notebook). The runs, with the cell-1 settings of their notebook
+(everything else at the defaults of `src/lpr/experiments.py`; the run folder name ends with the hash of the
+parameters, so the same settings find the same run):
+
+| Run | Notebook | `NDT_PARAMS` / `BEV_PARAMS` | `TRAIN_PARAMS` |
+|---|---|---|---|
+| `2026-10-04_baseline_4ed638` | 01 | `{}` | `{}` |
+| `2026-10-06_cov_transform_5c90e2` | 01 | `{}` | `dict(cov_transform=True)` |
+| `2026-10-07_f60015` | 01 | `{}` | `dict(cov_transform=True, rot_aug=True)` |
+| `2026-10-12_e39427` | 01 | `{}` | `dict(cov_transform=True, rot_points=8)` |
+| `2026-10-25_dbc4f4` | 01 | `{}` | `dict(cov_transform=True, rot_aug=True, beam_aug=[64, 32, 16])` |
+| `2026-10-08_without_Rein_b14094` | 02 | `{}` | `dict(arch="plain", rot_aug=False, epochs=20)` |
+| `2026-10-08_without_Rein_with_rot_216fa5` | 02 | `{}` | `dict(arch="plain", epochs=20)` |
+| `2026-10-25_without_Rein_26962e` | 02 | `{}` | `dict(arch="plain", epochs=20, beam_aug=[64, 32, 16])` |
+| `2026-10-05_baseline_4ac7d1` | 02 | `{}` | the defaults of its commit (20 epochs; stopped after 18) |
+| `official_2026-10-05_baseline_7711ab` | 02 | `{}` | the authors' checkpoint, evaluated only |
+| `2026-10-19_283ebc` | 04 | `{}` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1, head="loupe", feat_dim=1024)` |
+| `2026-10-19_6f8bf1` | 04 | `{}` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1)` |
+| `2026-10-20_065c48` | 04 | `{}` | `dict(epochs=20, lr=1e-5, head="loupe", feat_dim=1028)` |
+| `2026-10-20_3fe7a5`, `2026-10-25_45cb1e` | 04 | `{}` | `dict(epochs=20, lr=1e-5, rot_aug=False, head="loupe", feat_dim=1028)` |
+| `2026-10-26_eeb744` | 04 | `dict(ground="none")`, `NDT_TAG="ground_none"` | as 3fe7a5 |
+
+(Every run's `config.json` holds its full parameters and code commit; older runs used the defaults of
+their commit. `feat_dim=1028` is a typo for 1024 kept so the runs can be found again; `45cb1e` repeats 3fe7a5 with the
+code after the `beam_aug` commit.) Tables and figures of the report:
+
+| Report | Evaluation / script | Where |
+|---|---|---|
+| Recall per sequence, heading groups, main table | `seqs_heading` (notebooks 01 / 02 / 04, `EVALS`) | `evals_summary.csv`, `runs_summary.csv` |
+| Compass table and figure | `compass` | same; `scripts/report_figures.py` -> `fig_compass.png` |
+| Rotation curve | `rotation` (notebook 05, `EVAL_TYPE = "rotation"`) | same; `fig_rotation.png` |
+| T-Net check | `tnet` (notebook 01) | same; `fig_tnet.png` |
+| Sparsity tables and figure, beam_aug | `sparsity` (notebook 05) | `sparsity_all_runs.csv`; `fig_sparsity.png` |
+| Density check | notebook 05, section 7 | `density_check.csv` |
+| Official checkpoint with the paper's 08 split | notebook 05, section 8 | `runs/bev/official_*/eval/split08/` |
+| Ground removal | notebook 06 (+ `scripts/azure_ground_check.sh`) | `ground_check/<tag>/summary_all.csv`, previews |
+| Resources, method figure | notebook 07 | `benchmark/` |
+| NDT cell coverage | built into `extract_ndt.py` (notebook 03 for older variants) | `ndt/<variant>/stats_<seq>.csv` |
+
+`python scripts/report_figures.py --drive /content/drive/MyDrive/lpr --out_dir /content/drive/MyDrive/lpr/report_figures`
+draws the result figures from `evals_summary.csv`.
 
 ## Tests without KITTI
 

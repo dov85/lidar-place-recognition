@@ -48,6 +48,10 @@ def main():
     ap.add_argument("--query_dir", default=None,
                     help="sparsity test: the queries come from this variant folder (e.g. 16 beams), "
                          "the database from --bev_dir")
+    ap.add_argument("--split", type=int, default=None,
+                    help="override the split point (database = frames before it), e.g. 3000 for 08 "
+                         "as in Table II of the BEVPlace++ paper (the official code uses 1000)")
+    ap.add_argument("--gap", type=int, default=kitti.QUERY_GAP)
     ap.add_argument("--arch", default="auto", choices=["auto", *bp.ARCHS],
                     help="auto: from the config.json of the checkpoint's run (official: rein)")
     args = ap.parse_args()
@@ -66,7 +70,7 @@ def main():
     desc = bp.infer(model, bp.InferDataset(paths), DEVICE, batch=args.batch, workers=args.workers)
     sec = (time.time() - t0) / n
     xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
-    db, q = kitti.split_indices(args.seq, n)
+    db, q = split(args, n)
     if args.query_dir:   # queries from another variant (same scans, e.g. fewer beams)
         qpaths = bp.image_paths(args.query_dir, args.seq)
         desc[q] = bp.infer(model, bp.InferDataset([qpaths[i] for i in q]), DEVICE,
@@ -74,6 +78,7 @@ def main():
     r = recall(desc[db], desc[q], xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
     top1 = r.pop("top1_indices")
     r.update(seq=args.seq, ckpt=args.ckpt, method="bev", network_seconds_per_scan=sec,
+             split=int(db[-1]) + 1,
              db_dir=args.bev_dir, query_dir=args.query_dir or args.bev_dir)
     print(json.dumps(r, indent=1))
     if args.out:
@@ -81,6 +86,13 @@ def main():
             json.dump(r, f, indent=1)
         np.savez(os.path.splitext(args.out)[0] + "_matches.npz", query=q, top1=top1,
                  descriptors=desc)
+
+
+def split(args, n):
+    """Database and query frames: the protocol's split point, or --split / --gap."""
+    if args.split is None:
+        return kitti.split_indices(args.seq, n)
+    return np.arange(args.split), np.arange(args.split + args.gap, n)
 
 
 class RotatedImages(bp.InferDataset):
@@ -99,7 +111,7 @@ class RotatedImages(bp.InferDataset):
 def compass(args, model, paths, n):
     """Database frames rotated by --yaw_db, queries by each --yaw_q; one result per --outs."""
     xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
-    db, q = kitti.split_indices(args.seq, n)
+    db, q = split(args, n)
     yaw_db = np.load(args.yaw_db) if args.yaw_db else np.zeros(n)
 
     def desc(idx, angles):
