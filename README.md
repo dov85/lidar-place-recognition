@@ -300,12 +300,14 @@ parameters, so the same settings find the same run):
 | `2026-10-19_283ebc` | 04 | `{}` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1, head="loupe", feat_dim=1024)` |
 | `2026-10-19_6f8bf1` | 04 | `{}` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1)` |
 | `2026-10-20_065c48` | 04 | `{}` | `dict(epochs=20, lr=1e-5, head="loupe", feat_dim=1028)` |
-| `2026-10-20_3fe7a5`, `2026-10-25_45cb1e` | 04 | `{}` | `dict(epochs=20, lr=1e-5, rot_aug=False, head="loupe", feat_dim=1028)` |
+| `2026-10-20_3fe7a5` | 04 | `{}` | `dict(epochs=20, lr=1e-5, rot_aug=False, head="loupe", feat_dim=1028)` |
+| `2026-10-25_45cb1e` | 04 | `{}` | as 3fe7a5, `beam_aug=[64, 32, 16]` |
+| `2026-11-08_2dd507` | 04 | `{}` | as 3fe7a5, `seed=1` (repeat) |
+| `2026-11-08_fec6c9` | 04 | `dict(ground="none")`, `NDT_TAG="ground_none"` | as 3fe7a5, `seed=1` (repeat of eeb744) |
 | `2026-10-26_eeb744` | 04 | `dict(ground="none")`, `NDT_TAG="ground_none"` | as 3fe7a5 |
 
 (Every run's `config.json` holds its full parameters and code commit; older runs used the defaults of
-their commit. `feat_dim=1028` is a typo for 1024 kept so the runs can be found again; `45cb1e` repeats 3fe7a5 with the
-code after the `beam_aug` commit.) Tables and figures of the report:
+their commit. `feat_dim=1028` is a typo for 1024 kept so the runs can be found again.) Tables and figures of the report:
 
 | Report | Evaluation / script | Where |
 |---|---|---|
