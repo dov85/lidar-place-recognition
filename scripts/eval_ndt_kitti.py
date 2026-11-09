@@ -95,12 +95,10 @@ def main():
 
     def describe(folder, names):
         cfg.DATASET_FOLDER = folder
-        out = []
         with torch.no_grad():
-            for s in range(0, len(names), args.batch):
-                x = torch.from_numpy(lp.load_pc_files(names[s:s + args.batch])).float()
-                out.append(model(x.unsqueeze(1).to(DEVICE)).cpu().numpy())
-        return np.concatenate(out)
+            return in_batches(lambda sl: model(torch.from_numpy(lp.load_pc_files(names[sl])).float()
+                                               .unsqueeze(1).to(DEVICE)).cpu().numpy(),
+                              len(names), args)
 
     desc = describe(args.ndt_dir, files)
     sec = (time.time() - t0) / n
@@ -124,16 +122,32 @@ def main():
                  descriptors=desc)
 
 
+def in_batches(fn, n, args):
+    """fn(slice) -> descriptors of those items, over range(n) in batches of args.batch. If a
+    batch does not fit in GPU memory, the batch size is halved (and kept) and the batch retried."""
+    out, s = [], 0
+    while s < n:
+        try:
+            out.append(fn(slice(s, s + args.batch)))
+            s += args.batch
+        except torch.cuda.OutOfMemoryError:
+            if args.batch == 1:
+                raise
+            torch.cuda.empty_cache()
+            args.batch = max(1, args.batch // 2)
+            print(f"  out of GPU memory: {args.batch} scans per pass from now on", flush=True)
+    return np.concatenate(out)
+
+
 @torch.no_grad()
-def descriptors(model, files, idx, angles, batch):
-    out = []
-    for s in range(0, len(idx), batch):
-        b = idx[s:s + batch]
+def descriptors(model, files, idx, angles, args):
+    def fn(sl):
+        b = idx[sl]
         x = lp.load_pc_files([files[i] for i in b])
         if angles is not None:
             x = rotate_cells(x, angles[b])
-        out.append(model(torch.from_numpy(x).float().unsqueeze(1).to(DEVICE)).cpu().numpy())
-    return np.concatenate(out)
+        return model(torch.from_numpy(x).float().unsqueeze(1).to(DEVICE)).cpu().numpy()
+    return in_batches(fn, len(idx), args)
 
 
 def compass(args, model, files, n, cov):
@@ -141,9 +155,9 @@ def compass(args, model, files, n, cov):
     xyz = kitti.positions(kitti.load_poses(args.kitti_root, args.seq))[:n]
     db, q = kitti.split_indices(args.seq, n)
     yaw_db = np.load(args.yaw_db) if args.yaw_db else None
-    d_db = descriptors(model, files, db, yaw_db, args.batch)
+    d_db = descriptors(model, files, db, yaw_db, args)
     for yq, out in zip(args.yaw_q, args.outs):
-        d_q = descriptors(model, files, q, np.load(yq), args.batch)
+        d_q = descriptors(model, files, q, np.load(yq), args)
         r = recall(d_db, d_q, xyz[db], xyz[q], threshold=kitti.MATCH_THRESHOLD_M)
         top1 = r.pop("top1_indices")
         r.update(seq=args.seq, ckpt=args.ckpt, cov_transform=cov, yaw_db=args.yaw_db, yaw_q=yq)

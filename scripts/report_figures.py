@@ -86,12 +86,12 @@ def main():
 
     rot_runs = ["5c90e2", "f60015", "e39427", "283ebc", "3fe7a5", "b14094", "216fa5", "4ac7d1", "7711ab"]
     if (e.eval_type == "rotation").any():
-        fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
+        fig, axes = plt.subplots(1, 2, figsize=(12.5, 3.8))
         curve(plt, e, "rotation", "alpha_deg", rot_runs, "08", "query rotation amplitude α (deg)",
               "Recall@1 (%)", None, ax=axes[0], title="KITTI 08")
         curve(plt, e, "rotation", "alpha_deg", rot_runs, "mean", "query rotation amplitude α (deg)",
               "Recall@1 (%)", None, ax=axes[1], title="mean of 00, 02, 05, 06, 08")
-        axes[1].legend(fontsize=7.5, frameon=False, loc="lower left")
+        axes[1].legend(fontsize=7.5, frameon=False, loc="center left", bbox_to_anchor=(1.01, 0.5))
         fig.tight_layout(); fig.savefig(out("fig_rotation.png"), dpi=200); plt.close(fig)
         made.append("fig_rotation.png")
 
