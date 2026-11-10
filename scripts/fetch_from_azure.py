@@ -10,9 +10,6 @@ With --rot_copies N (ndt): the point-rotated copies cells_<seq>_rot<N>.tar of th
 sequences instead (azure_build.sh with ROT_COPIES=N).
 NDT variants built with the built-in checks also have previews_<seq>.tar (pictures of 10
 scans); they are unpacked to <variant>/previews_<seq>/.
-With --coverage: the results of scripts/azure_coverage.sh (checks of a variant built before
-the checks existed) to <variant>/coverage/: coverage_<seq>.csv, coverage_<seq>_summary.json,
-previews_<seq>/.
 
 Example:
   python scripts/fetch_from_azure.py --sas_url "<container SAS URL>" --method ndt \
@@ -75,10 +72,7 @@ def main():
     ap.add_argument("--drive", required=True)
     ap.add_argument("--method", default="ndt", choices=["ndt", "bev"])
     ap.add_argument("--rot_copies", type=int, default=0)
-    ap.add_argument("--coverage", action="store_true")
     a = ap.parse_args()
-    if a.coverage:
-        return fetch_coverage(a)
 
     vdir = os.path.join(a.drive, a.method, a.variant)
     os.makedirs(vdir, exist_ok=True)
@@ -157,22 +151,6 @@ def unpack_previews(url, dest_dir, seq):
     os.remove(tmp)
     print(f"  pictures -> {out}")
     return True
-
-
-def fetch_coverage(a):
-    out = os.path.join(a.drive, a.method, a.variant, "coverage")
-    os.makedirs(out, exist_ok=True)
-    prefix = f"{a.method}/{a.variant}/coverage"
-    for seq in a.seqs:
-        ok = download(blob_url(a.sas_url, f"{prefix}/coverage_{seq}.csv"),
-                      os.path.join(out, f"coverage_{seq}.csv"))
-        if not ok:
-            print(f"seq {seq}: no coverage results in the blob container (azure_coverage.sh)")
-            continue
-        download(blob_url(a.sas_url, f"{prefix}/coverage_{seq}_summary.json"),
-                 os.path.join(out, f"coverage_{seq}_summary.json"))
-        unpack_previews(blob_url(a.sas_url, f"{prefix}/previews_{seq}.tar"), out, seq)
-    print("coverage results in", out)
 
 
 if __name__ == "__main__":

@@ -8,14 +8,14 @@
 #
 # Settings (environment variables):
 #   SEQS     sequences (default: 00 02 05 06 08)
-#   N_SCANS  random scans per sequence (default 300, as notebook 06; 0 = all)
+#   N_SCANS  random scans per sequence (default 300; 0 = all)
 #   PARAMS   JSON, NDT parameters that differ from the defaults (default {})
 #   WORK     working folder (default: $HOME/work)
 #
-# Results, in the blob container (notebook 06, section 7, copies them to Drive):
+# Results, in the blob container (notebooks/1_data.ipynb copies them to Drive):
 #   ground_check/<TAG>/ground_coverage_<seq>.csv, _summary.csv, _params.json,
 #   ground_check/<TAG>/ground_previews_<seq>.tar
-# TAG = lpr.experiments.ground_check_tag(PARAMS, N_SCANS), the folder name of notebook 06.
+# TAG = lpr.experiments.ground_check_tag(PARAMS, N_SCANS), the folder name used by notebooks/1_data.ipynb.
 # A sequence whose summary is already in the blob container is skipped.
 set -euo pipefail
 

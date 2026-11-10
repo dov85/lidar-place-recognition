@@ -1,5 +1,4 @@
-"""Quality checks of NDT cells, used by every extraction (extract_ndt.py) and by
-scripts/ndt_coverage.py for variants built before these checks existed.
+"""Quality checks of NDT cells, run by every extraction (scripts/extract_ndt.py).
 
 Coverage: how well the cells describe the points they were built from (the points left
 after crop and ground removal). Columns per scan (all distances in metres):

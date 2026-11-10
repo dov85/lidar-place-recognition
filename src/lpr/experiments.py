@@ -319,7 +319,7 @@ def beam_aug_dirs(data_dir, method, beams):
 
 
 def ground_check_tag(ndt_params, n_scans):
-    """Folder name of a ground check (scripts/ground_coverage.py, notebook 06,
+    """Folder name of a ground check (scripts/ground_coverage.py, notebook 1_data,
     scripts/azure_ground_check.sh): hash of the NDT parameters without 'ground' (both
     modes are run) and the number of scans."""
     full = {**NDT_DEFAULTS, **ndt_params}
