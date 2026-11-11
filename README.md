@@ -70,8 +70,8 @@ protocol and all evaluation types, the Azure / Drive data pipeline and the noteb
 
 ## Setup
 
-Colab with a GPU runtime. The notebooks clone the code from `REPO_URL` (or copy it from `CODE_ON_DRIVE`, a copy of
-this folder on Google Drive), run `scripts/setup_third_party.sh` and `pip install -r requirements.txt`
+Colab with a GPU runtime. The notebooks clone the code from `REPO_URL` (a private repository needs a GitHub token
+in Colab Secrets as `GITHUB_TOKEN`), or copy it from `CODE_ON_DRIVE` (a copy of this folder on Google Drive), run `scripts/setup_third_party.sh` and `pip install -r requirements.txt`
 (torch / torchvision are preinstalled on Colab). Everything that is kept lives on Google Drive in `MyDrive/lpr/`:
 
 ```
