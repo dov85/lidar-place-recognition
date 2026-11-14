@@ -28,6 +28,7 @@ src/lpr/              the library (imported by the scripts)
   evals.py              evaluation types and where their results live
   experiments.py        parameters, defaults and names of variants and runs (hash of the parameters)
   colab.py              helpers of the notebooks (run a script, copy a variant to the machine)
+  public_drive.py       read-only access to the project folder through its public Google Drive link
 scripts/
   setup_third_party.sh  clones the official repositories at fixed commits into third_party/
   download_kitti.py     only the needed parts of KITTI Odometry (range requests into the zip)
@@ -48,6 +49,7 @@ scripts/
   summarize_runs.py     runs_summary.csv and evals_summary.csv (the source of the report's tables)
   benchmark.py          time, memory and parameters of the pipelines and networks
   figure_method.py, figure_networks.py   Figures 1 and 2 of the report
+  report_figures.py     Figures 3-6 of the report (rotation curve, compass, T-Net check, sparsity) from evals_summary.csv
   check_beams.py        check of the ring recovery on real scans
 tests/
   test_models.py        own network = official network (same weights, same descriptors), NetVLAD head, 45 deg invariance
@@ -91,6 +93,27 @@ container; the container SAS URL (read + list for Colab) goes into Colab Secrets
 the exact commands for the VM. Without Azure, notebook 1 can build NDT cells in Colab (`BUILD_HERE`, about 0.5 s
 per scan).
 
+### Without access to the original Drive: the public link
+
+The project folder (`MyDrive/lpr`, with every variant, run, checkpoint and summary) is shared read-only:
+
+```
+https://drive.google.com/drive/folders/1p93PZr8195JoWbNjgxfXRTu30IfC43p3
+```
+
+Put this link in `PUBLIC_URL` (cell 1 of any notebook). `DRIVE` then becomes a local copy of the folder
+(`PUBLIC_MIRROR`, `/content/lpr_public` by default; a folder on your own Drive keeps it between sessions). At
+start-up the configuration of every variant and run is copied (small files), so the existing variants and runs are
+found by their parameters; the cells / images of a sequence and the checkpoint of a run are downloaded only when a
+notebook needs them (`src/lpr/public_drive.py`, folder listing without an account, files with gdown):
+
+- notebook 1 and 2: the cells and images of the variant (training, extraction checks), without Azure;
+- notebook 3: the checkpoint of every evaluated run (`EVAL_CKPT`, by default the last one), so every evaluation
+  of the report can be repeated with the trained weights; the results are written into the local copy.
+
+A finished run is not trained again (its config is found by the hash of its parameters); to retrain one, change
+its `seed`.
+
 ## Reproducing the results
 
 1. **Data** (notebook 1, once per variant): `METHOD="ndt"` and `METHOD="bev"` with the default parameters, with
@@ -117,7 +140,9 @@ per scan).
 3. **Evaluation** (notebook 3, all runs at once): the default `EVAL_TYPES` give the main table, the heading groups,
    the compass and rotation curves, the sparsity tables and the T-Net check; `DENSITY_CHECK=True` the density check,
    `SPLIT08_CHECK=True` the 08 split check, `BENCHMARK=True` the resource tables and Figures 1-2.
-   Section 5 prints the tables; all numbers are in `MyDrive/lpr/evals_summary.csv`.
+   Section 5 prints the tables; all numbers are in `MyDrive/lpr/evals_summary.csv`. Section 9 (`FIGURES=True`)
+   draws Figures 3-6 into `MyDrive/lpr/figures/`; locally:
+   `python scripts/report_figures.py --summary evals_summary.csv --out figures`.
 4. **Ground check** (notebook 1, `GROUND_CHECK=True`): the coverage table of the ground-removal section.
 
 ## Tests

@@ -16,6 +16,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from lpr import evals  # noqa: E402
 from lpr import experiments as ex  # noqa: E402
+from lpr import public_drive  # noqa: E402
 
 
 def main():
@@ -25,17 +26,25 @@ def main():
     ap.add_argument("--drive", required=True)
     ap.add_argument("--data_root", required=True, help="e.g. /content/ndt")
     ap.add_argument("--sas_url", default=None, help="needed only for what is not on Drive yet")
+    ap.add_argument("--public_url", default="", help="public link of the project folder (read-only)")
     ap.add_argument("--beams", type=int, nargs="+",
                     default=evals.EVAL_TYPES["sparsity"]["params"]["beams"])
     ap.add_argument("--seqs", nargs="+", default=evals.ALL_SEQS)
     a = ap.parse_args()
     base_cfg = os.path.join(a.drive, a.method, a.variant, "config.json")
+    if a.public_url and not os.path.exists(base_cfg):
+        public_drive.fetch(a.public_url, f"{a.method}/{a.variant}/config.json", a.drive)
     params = json.load(open(base_cfg))["params"]
     for b in a.beams:
         name, _ = ex.sparse_variant(a.method, a.variant, params, b)
         vdir = os.path.join(a.drive, a.method, name)
         local = os.path.join(a.data_root, name)
         tar = lambda s: os.path.join(vdir, ex.archive_name(a.method, s))  # noqa: E731
+        if a.public_url:                              # the shared project folder, if given
+            for s in a.seqs:
+                if not os.path.exists(tar(s)):
+                    public_drive.fetch(a.public_url, f"{a.method}/{name}/{ex.archive_name(a.method, s)}",
+                                       a.drive, quiet=False)
         missing = [s for s in a.seqs if not os.path.exists(tar(s))]
         if missing and a.sas_url:
             res = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "fetch_from_azure.py"),

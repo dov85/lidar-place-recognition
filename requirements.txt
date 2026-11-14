@@ -10,3 +10,4 @@ remotezip
 pypatchworkpp
 opencv-python
 faiss-cpu
+gdown

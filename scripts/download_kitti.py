@@ -71,6 +71,7 @@ def main():
     ap.add_argument("--seqs", nargs="+", default=["00"])
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--first", type=int, default=None, help="only the first N scans per sequence")
+    ap.add_argument("--idx", type=int, nargs="+", default=None, help="only these scan indices per sequence")
     ap.add_argument("--poses_only", action="store_true", help="skip the Velodyne scans")
     args = ap.parse_args()
 
@@ -91,6 +92,8 @@ def main():
                            if n.startswith(f"dataset/sequences/{s}/velodyne/") and n.endswith(".bin"))
         if args.first:
             seq_names = seq_names[:args.first]
+        if args.idx:
+            seq_names = [n for n in seq_names if int(os.path.basename(n)[:-4]) in set(args.idx)]
         print(f"sequence {s}: {len(seq_names)} scans", flush=True)
         todo += seq_names
 

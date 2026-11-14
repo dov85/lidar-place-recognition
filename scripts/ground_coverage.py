@@ -140,6 +140,8 @@ def main():
     ap.add_argument("--seq", required=True)
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--n_scans", type=int, default=300, help="random scans (0 = all)")
+    ap.add_argument("--scans", type=int, nargs="+", default=None,
+                    help="these scan indices instead of random ones (all of them get a picture)")
     ap.add_argument("--previews", type=int, default=6, help="scans with a picture")
     ap.add_argument("--dist", type=float, default=None, help="coverage distance (default: radius)")
     ap.add_argument("--params", default="{}", help="JSON: NDT parameters that differ from the defaults")
@@ -152,6 +154,9 @@ def main():
     rng = np.random.default_rng([A.seed, int(A.seq)])
     idxs = (list(range(n)) if A.n_scans <= 0 or A.n_scans >= n
             else sorted(int(i) for i in rng.choice(n, A.n_scans, replace=False)))
+    if A.scans:
+        idxs = sorted(A.scans)
+        A.previews = len(idxs)
     A.preview_idx = set(idxs[:: max(1, len(idxs) // max(A.previews, 1))][: A.previews])
     os.makedirs(os.path.join(A.out_dir, f"ground_previews_{A.seq}"), exist_ok=True)
     print(f"seq {A.seq}: {len(idxs)} of {n} scans, modes {MODES}, coverage within {A.dist} m, "
