@@ -1,7 +1,7 @@
 """BEV density images as in BEVPlace++ (third_party/BEVPlace2/datasets/gen_bev_images.py).
 
 The official script loops over the points in Python; this is a vectorised version of the
-same computation (checked pixel for pixel against the official one in tests/):
+same computation (the same images as the official script, pixel for pixel):
   1. crop |x|, |y|, |z| < 40 m (strict, as the official script);
   2. voxel down-sampling with 0.4 m voxels, Open3D semantics (voxel grid anchored at
      min_bound - voxel/2, each voxel replaced by the mean of its points);

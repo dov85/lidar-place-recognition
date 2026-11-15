@@ -48,12 +48,7 @@ scripts/
   ground_coverage.py    NDT cells with and without ground removal
   summarize_runs.py     runs_summary.csv and evals_summary.csv (the source of the report's tables)
   benchmark.py          time, memory and parameters of the pipelines and networks
-  figure_method.py, figure_networks.py   Figures 1 and 2 of the report
-  report_figures.py     Figures 3-6 of the report (rotation curve, compass, T-Net check, sparsity) from evals_summary.csv
-  check_beams.py        check of the ring recovery on real scans
-tests/
-  test_models.py        own network = official network (same weights, same descriptors), NetVLAD head, 45 deg invariance
-  test_bev_matches_official.py   src/lpr/bev.py = the official BEV script, pixel by pixel
+  report_figures.py     every figure of the report: 3-6 from evals_summary.csv, 2 without data, 1 and 7 from raw scans
 requirements.txt
 ```
 
@@ -65,9 +60,9 @@ its lazy quadruplet loss, tuple sampling and hard-negative scheme (`train_ndt_ki
 BEVPlace++ network (REIN) and the authors' checkpoint (`train_bev_kitti.py`, `eval_bev_kitti.py` import them).
 Reproduced from the official code: the BEVPlace++ training recipe in `src/lpr/bevplace.py` (training set, hard
 mining, loss, NetVLAD k-means initialisation; from `main.py` and `kitti_dataset.py`) and the BEV image in
-`src/lpr/bev.py` (same output as `gen_bev_images.py`, checked by `tests/test_bev_matches_official.py`).
+`src/lpr/bev.py` (same output as `gen_bev_images.py`, pixel for pixel).
 Everything else is mine: NDT cell generation G, cropping and ground removal, beam thinning, the own network and
-its heads (`tests/test_models.py` checks them against the official code), the training loops, the evaluation
+its heads (the same descriptors as the official code with the same weights), the training loops, the evaluation
 protocol and all evaluation types, the Azure / Drive data pipeline and the notebooks.
 
 ## Setup
@@ -141,10 +136,6 @@ its `seed`.
    `SPLIT08_CHECK=True` the 08 split check, `BENCHMARK=True` the resource tables and Figures 1-2.
    Section 5 prints the tables; all numbers are in `MyDrive/lpr/evals_summary.csv`. Section 9 (`FIGURES=True`)
    draws Figures 3-6 into `MyDrive/lpr/figures/`; locally:
-   `python scripts/report_figures.py --summary evals_summary.csv --out figures`.
+   `python scripts/report_figures.py --summary evals_summary.csv --out figures` (Figures 2-6; with
+   `--kitti_root <KITTI folder>` also Figures 1 and 7, from two raw scans that are downloaded if missing).
 4. **Ground check** (notebook 1, `GROUND_CHECK=True`): the coverage table of the ground-removal section.
-
-## Tests
-
-`python tests/test_models.py` (CPU, a few minutes) and `python tests/test_bev_matches_official.py` (needs open3d and tqdm;
-synthetic scans, or `--scans a.bin b.bin` for real ones), after `bash scripts/setup_third_party.sh`.

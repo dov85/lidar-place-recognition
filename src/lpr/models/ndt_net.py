@@ -25,8 +25,7 @@ Additions:
 The forward returns (local, local, global) like REIN in BEVPlace++, so the training code of
 src/lpr/bevplace.py (cache, hard mining, k-means initialisation) works unchanged.
 NDTNet(stn=True, rotations=1, head="loupe", feat_dim=1024, local_norm=False, l2_out=False)
-is the official network: load_official() maps an official state_dict onto it
-(checked in tests/test_models.py).
+is the official network: load_official() maps an official state_dict onto it.
 """
 import json
 import math

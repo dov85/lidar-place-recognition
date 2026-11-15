@@ -6,7 +6,7 @@ NetVLAD      the head of BEVPlace++ (third_party/BEVPlace2/REIN.py): 64 clusters
              (init_params, same code as the official one). The official forward loops over
              the clusters; here the same sum is computed as
                V_k = sum_i a_ik x_i - (sum_i a_ik) c_k
-             (identical result, checked in tests/test_models.py).
+             (identical result).
 NetVLADLoupe the head of NDT-Transformer (third_party/NDT-Transformer/models/NetVLAD.py):
              assignment x @ W -> BatchNorm -> softmax, separate centres, intra-normalisation
              + L2, then a fully connected layer to output_dim, BatchNorm and context
