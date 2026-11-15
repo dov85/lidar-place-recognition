@@ -47,7 +47,7 @@ RUNS = {
 }
 FIG_RUNS = {
     "rotation": ["NDT-orig", "NDT-rot", "NDT-REIN", "BEV-plain", "BEV-plain-rot", "BEV-REIN-ours"],
-    "compass": ["NDT-orig", "NDT-rot", "NDT-REIN", "BEV-plain", "BEV-plain-rot"],
+    "compass": ["NDT-orig", "NDT-rot", "NDT-REIN", "BEV-plain", "BEV-plain-rot", "BEV-REIN-ours"],
     "tnet": ["NDT-orig", "NDT-rot"],
     "sparsity": ["NDT-orig", "NDT-rot", "NDT-REIN", "BEV-plain", "BEV-plain-rot", "BEV-REIN-ours"],
 }

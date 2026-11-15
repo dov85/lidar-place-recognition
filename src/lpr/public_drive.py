@@ -100,11 +100,12 @@ def fetch(url, relpath, local_root, quiet=True):
 
 
 def mirror_configs(url, local_root, methods=("ndt", "bev", "myndt")):
-    """Every variant and run config.json, and the summary tables, into the mirror. Small files;
+    """Every variant and run config.json into the mirror, and the summary tables of the shared
+    folder into <mirror>/public/ (the mirror's own tables only hold what is evaluated here). Small files;
     the cells, images and checkpoints are fetched later, only the ones that are needed."""
     n = 0
-    for f in ("evals_summary.csv", "runs_summary.csv", "density_check.csv"):
-        n += fetch(url, f, local_root) is not None
+    for f in ("evals_summary.csv", "runs_summary.csv", "density_check.csv"):   # kept apart: the local
+        n += fetch(url, f, os.path.join(local_root, "public")) is not None      # ones are rebuilt here
     for data in ("ndt", "bev"):
         for variant in listdir(url, data):
             n += fetch(url, f"{data}/{variant}/config.json", local_root) is not None
