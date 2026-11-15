@@ -24,6 +24,7 @@ import time
 import requests
 
 RETRY_WAITS = [20, 60, 120]   # seconds between the attempts of one file
+DOWNLOAD = "https://drive.usercontent.google.com/download"
 
 ENTRY = re.compile(r'<div class="flip-entry" id="entry-([^"]+)"[\s\S]*?<a href="([^"]+)"'
                    r'[\s\S]*?<div class="flip-entry-title">([^<]*)</div>')
@@ -66,6 +67,21 @@ def listdir(url, relpath):
     return sorted(list_folder(item[0])) if item and item[1] else []
 
 
+def direct(fid, out):
+    """Download a public file without gdown. Large files answer with a confirmation page (HTML)
+    instead of the file; then False, and gdown handles them."""
+    try:
+        r = requests.get(DOWNLOAD, params={"id": fid, "export": "download"}, timeout=60, stream=True)
+        if r.status_code != 200 or r.headers.get("Content-Type", "").startswith("text/html"):
+            return False
+        with open(out, "wb") as f:
+            for chunk in r.iter_content(16 << 20):
+                f.write(chunk)
+        return True
+    except requests.RequestException:
+        return False
+
+
 def fetch(url, relpath, local_root, quiet=True):
     """Copy one file of the shared folder to <local_root>/<relpath> (if it is not there yet).
     Returns the local path, or None if the shared folder has no such file."""
@@ -82,6 +98,9 @@ def fetch(url, relpath, local_root, quiet=True):
         print(f"  {relpath} <- public Drive link")
     # Google limits how often a public file is downloaded ("too many accesses"): wait and retry
     for attempt, wait in enumerate(RETRY_WAITS + [None]):
+        if direct(item[0], tmp):        # small files: one plain request (gdown refuses some of them)
+            os.replace(tmp, dest)
+            return dest
         try:
             if gdown.download(id=item[0], output=tmp, quiet=True) and os.path.exists(tmp):
                 os.replace(tmp, dest)
