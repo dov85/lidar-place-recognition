@@ -11,14 +11,19 @@ the same layout (the "mirror"), so the rest of the code sees an ordinary DRIVE f
 
 Folders are listed with the public embedded folder view (no Google account or API key); files are
 downloaded with gdown (preinstalled on Colab), which handles the confirmation page of large files.
+Drive limits how often a public file is downloaded; a refused file is retried, and if it still
+fails it is reported as missing (the notebooks then go on with the sequences that are there).
 """
 import functools
 import html
 import json
 import os
 import re
+import time
 
 import requests
+
+RETRY_WAITS = [20, 60, 120]   # seconds between the attempts of one file
 
 ENTRY = re.compile(r'<div class="flip-entry" id="entry-([^"]+)"[\s\S]*?<a href="([^"]+)"'
                    r'[\s\S]*?<div class="flip-entry-title">([^<]*)</div>')
@@ -75,9 +80,23 @@ def fetch(url, relpath, local_root, quiet=True):
     tmp = dest + ".part"
     if not quiet:
         print(f"  {relpath} <- public Drive link")
-    gdown.download(id=item[0], output=tmp, quiet=quiet)
-    os.replace(tmp, dest)
-    return dest
+    # Google limits how often a public file is downloaded ("too many accesses"): wait and retry
+    for attempt, wait in enumerate(RETRY_WAITS + [None]):
+        try:
+            if gdown.download(id=item[0], output=tmp, quiet=True) and os.path.exists(tmp):
+                os.replace(tmp, dest)
+                return dest
+            err = "no file was written"
+        except Exception as e:  # gdown raises FileURLRetrievalError when Drive refuses
+            err = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+        if wait is None:
+            break
+        print(f"    Drive refused the download ({err}); retry {attempt + 1} in {wait} s")
+        time.sleep(wait)
+    print(f"    could not download {relpath} from the public link: {err}\n"
+          f"    Drive limits downloads of public files; run again later (what was copied is kept), "
+          f"or add the folder to your own Drive and set DRIVE to it (PUBLIC_URL = \"\").")
+    return None
 
 
 def mirror_configs(url, local_root, methods=("ndt", "bev", "myndt")):

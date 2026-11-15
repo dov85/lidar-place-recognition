@@ -126,7 +126,6 @@ its `seed`.
 | NDT-orig | `ndt` | `dict(cov_transform=True)` |
 | NDT-rot | `ndt` | `dict(cov_transform=True, rot_aug=True)` |
 | NDT-BEVrecipe | `myndt` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1, head="loupe", feat_dim=1024)` |
-| NDT-BEVhead | `myndt` | `dict(epochs=20, lr=1e-5, stn=True, rotations=1)` |
 | NDT-REIN | `myndt` | `dict(epochs=20, lr=1e-5, rot_aug=False, head="loupe", feat_dim=1028)` |
 | NDT-REIN-rot | `myndt` | `dict(epochs=20, lr=1e-5, head="loupe", feat_dim=1028)` |
 | NDT-REIN-ground | `myndt` | as NDT-REIN, with `VARIANT_TAG="ground_none"`, `VARIANT_PARAMS=dict(ground="none")` |
@@ -147,5 +146,5 @@ its `seed`.
 
 ## Tests
 
-`python tests/test_models.py` (CPU, a few minutes) and `python tests/test_bev_matches_official.py` (needs open3d;
+`python tests/test_models.py` (CPU, a few minutes) and `python tests/test_bev_matches_official.py` (needs open3d and tqdm;
 synthetic scans, or `--scans a.bin b.bin` for real ones), after `bash scripts/setup_third_party.sh`.
