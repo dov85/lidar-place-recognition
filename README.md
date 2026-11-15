@@ -9,7 +9,7 @@ re-implementation of NDT-Transformer that can be trained with the BEVPlace++ rec
 ```
 notebooks/            the three Colab notebooks that run everything (settings in cell 1, then Run all)
   1_data.ipynb          NDT cells / BEV images: commands for the Azure VM, blob container -> Drive,
-                        optional: build in Colab, BEV pixel check, ground check
+                        optional: build in Colab, ground check
   2_train.ipynb         training of one run: METHOD = "ndt" | "bev" | "myndt"
   3_evaluate.ipynb      evaluations of all runs, tables, density check, 08 split check, resources and figures
 src/lpr/              the library (imported by the scripts)
@@ -17,7 +17,7 @@ src/lpr/              the library (imported by the scripts)
   preprocess.py         crop (80 x 80 m square) and ground removal (Patchwork++)
   ndt_g.py              G: the 2000 NDT cells of a scan (not in the official repository)
   ndt_check.py          coverage checks of the cells, run by every extraction
-  bev.py                BEV density images (vectorised, pixel-identical to the official script)
+  bev.py                BEV density images (vectorised version of the official script)
   beams.py              fewer laser beams: ring recovery and thinning 64 -> 32 / 16
   rotation.py           rotations about z of NDT cells and BEV images (augmentation, compass, rotation curve)
   bevplace.py           the BEVPlace++ training recipe (training set, hard mining, loss, NetVLAD init)
@@ -60,7 +60,7 @@ its lazy quadruplet loss, tuple sampling and hard-negative scheme (`train_ndt_ki
 BEVPlace++ network (REIN) and the authors' checkpoint (`train_bev_kitti.py`, `eval_bev_kitti.py` import them).
 Reproduced from the official code: the BEVPlace++ training recipe in `src/lpr/bevplace.py` (training set, hard
 mining, loss, NetVLAD k-means initialisation; from `main.py` and `kitti_dataset.py`) and the BEV image in
-`src/lpr/bev.py` (same output as `gen_bev_images.py`, pixel for pixel).
+`src/lpr/bev.py` (a vectorised version of `gen_bev_images.py`).
 Everything else is mine: NDT cell generation G, cropping and ground removal, beam thinning, the own network and
 its heads (the same descriptors as the official code with the same weights), the training loops, the evaluation
 protocol and all evaluation types, the Azure / Drive data pipeline and the notebooks.
