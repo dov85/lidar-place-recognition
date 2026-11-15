@@ -67,9 +67,11 @@ protocol and all evaluation types, the Azure / Drive data pipeline and the noteb
 
 ## Setup
 
-Colab with a GPU runtime. The notebooks clone the code from `REPO_URL` (a private repository needs a GitHub token
-in Colab Secrets as `GITHUB_TOKEN`), or copy it from `CODE_ON_DRIVE` (a copy of this folder on Google Drive), run `scripts/setup_third_party.sh` and `pip install -r requirements.txt`
-(torch / torchvision are preinstalled on Colab). Everything that is kept lives on Google Drive in `MyDrive/lpr/`:
+Colab with a GPU runtime. By default the notebooks read everything from the public link of the project folder and
+write nothing to your Drive (next section). The notebooks clone the code from `REPO_URL` (a private repository needs
+a GitHub token in Colab Secrets as `GITHUB_TOKEN`), or copy it from `CODE_ON_DRIVE` (a copy of this folder on Google Drive), run `scripts/setup_third_party.sh` and `pip install -r requirements.txt`
+(torch / torchvision are preinstalled on Colab). With `PUBLIC_URL = ""` everything that is kept lives on your own Google
+Drive in `MyDrive/lpr/` (`DRIVE`):
 
 ```
 lpr/ndt/<variant>/        config.json, cells_<seq>.tar, stats_<seq>.csv      (NDT cells, one tar per sequence)
@@ -88,7 +90,7 @@ container; the container SAS URL (read + list for Colab) goes into Colab Secrets
 the exact commands for the VM. Without Azure, notebook 1 can build NDT cells in Colab (`BUILD_HERE`, about 0.5 s
 per scan).
 
-### Without access to the original Drive: the public link
+### The default: the public link
 
 The project folder (`MyDrive/lpr`, with every variant, run, checkpoint and summary) is shared read-only:
 
@@ -96,8 +98,11 @@ The project folder (`MyDrive/lpr`, with every variant, run, checkpoint and summa
 https://drive.google.com/drive/folders/1p93PZr8195JoWbNjgxfXRTu30IfC43p3
 ```
 
-Put this link in `PUBLIC_URL` (cell 1 of any notebook). `DRIVE` then becomes a local copy of the folder
-(`PUBLIC_MIRROR`, `/content/lpr_public` by default; a folder on your own Drive keeps it between sessions). At
+This link is the default `PUBLIC_URL` (cell 1 of every notebook), so the notebooks can be run just to check the
+project: the folder is only read, Google Drive is not mounted, and everything goes into a local copy of the folder
+(`PUBLIC_MIRROR`, `/content/lpr_public`), which is deleted when the Colab session ends. To keep it, set
+`PUBLIC_MIRROR` to a folder on your own Drive (e.g. `/content/drive/MyDrive/lpr_public`); to work on your own
+project folder instead (`DRIVE`, with Azure for the data), set `PUBLIC_URL = ""`. At
 start-up the configuration of every variant and run is copied (small files), so the existing variants and runs are
 found by their parameters; the cells / images of a sequence and the checkpoint of a run are downloaded only when a
 notebook needs them (`src/lpr/public_drive.py`, folder listing without an account, files with gdown):
