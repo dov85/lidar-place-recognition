@@ -13,10 +13,8 @@ Differences are in [0, 180] degrees and grouped into
 With --matches_dir (folder with eval_<seq>_matches.npz written by eval_ndt_kitti.py),
 the Recall@1 of each heading group is reported as well.
 
-Example:
-  python scripts/heading_analysis.py --kitti_root /content/kitti --seqs 00 02 05 06 08 \
-      --out_dir <run>/eval/standard/<checkpoint> \
-      --matches_dir /content/drive/MyDrive/lpr/runs/<run>
+Table 1 of the report (share of the queries per heading group, from the poses only):
+  python scripts/heading_analysis.py --kitti_root /content/kitti --seqs 00 02 05 06 08 --out_dir headings
 """
 import argparse
 import json

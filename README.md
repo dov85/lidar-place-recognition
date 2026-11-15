@@ -42,7 +42,7 @@ scripts/
   train_myndt_kitti.py  own NDT network, BEVPlace++ recipe
   evaluate.py           one evaluation type on one checkpoint (calls the scripts below)
   eval_ndt_kitti.py, eval_bev_kitti.py   descriptors and recall of one sequence
-  heading_analysis.py   query heading vs map heading, recall per heading group
+  heading_analysis.py   query heading vs map heading per sequence (Table 1 of the report; poses only)
   tnet_check.py         what the T-Net learned (scans rotated about z)
   density_check.py      16-beam vs 64-beam descriptors of the same scans
   ground_coverage.py    NDT cells with and without ground removal

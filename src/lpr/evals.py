@@ -19,8 +19,7 @@ import os
 ALL_SEQS = ["00", "02", "05", "06", "08"]
 
 EVAL_TYPES = {
-    # Recall on every sequence (BEVPlace++ protocol) + query headings vs map headings,
-    # with Recall@1 per heading group (same / crossing / opposite).
+    # Recall on every sequence (BEVPlace++ protocol), scans as recorded.
     "standard": dict(methods=["ndt", "bev", "myndt"],
                      params=dict(seqs=ALL_SEQS)),
     # NDT-Transformer only: what the T-Net learned. Scans rotated about the vertical axis;
@@ -113,21 +112,12 @@ def write_config(out_dir, eval_type, params, ckpt_path, run_dir, complete, commi
 
 
 def write_seqs_summary(out_dir, seqs):
-    """summary.csv of a standard evaluation: recall per sequence + heading groups."""
+    """summary.csv of a standard evaluation: recall per sequence."""
     import pandas as pd
-    head_path = os.path.join(out_dir, "heading_summary.csv")
-    head = pd.read_csv(head_path, dtype={"seq": str}) if os.path.exists(head_path) else None
-    if head is not None:
-        head["seq"] = head["seq"].str.zfill(2)
     rows = []
     for s in seqs:
         r = json.load(open(os.path.join(out_dir, f"eval_{s}.json")))
         row = {"seq": s, **{k: round(r[k], 2) for k in ("R@1", "R@5", "R@1%")},
                "queries": r["n_queries_with_positive"]}
-        if head is not None:
-            h = head[head["seq"] == s]
-            if len(h):
-                row.update({c: h.iloc[0][c] for c in head.columns
-                            if c.startswith("% ") or c.startswith("R@1 ") or c.startswith("median")})
         rows.append(row)
     pd.DataFrame(rows).to_csv(os.path.join(out_dir, "summary.csv"), index=False)

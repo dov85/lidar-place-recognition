@@ -60,8 +60,6 @@ def standard(a, params, ckpt, out):
         print("  no data for sequences", missing, "(skipped; the evaluation stays incomplete)")
     if not done:
         return False
-    run([PY, os.path.join(ROOT, "scripts", "heading_analysis.py"), "--kitti_root", a.kitti_root,
-         "--seqs", *done, "--out_dir", out, "--matches_dir", out])
     evals.write_seqs_summary(out, done)
     return not missing
 
