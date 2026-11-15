@@ -21,8 +21,8 @@ ALL_SEQS = ["00", "02", "05", "06", "08"]
 EVAL_TYPES = {
     # Recall on every sequence (BEVPlace++ protocol) + query headings vs map headings,
     # with Recall@1 per heading group (same / crossing / opposite).
-    "seqs_heading": dict(methods=["ndt", "bev", "myndt"],
-                         params=dict(seqs=ALL_SEQS)),
+    "standard": dict(methods=["ndt", "bev", "myndt"],
+                     params=dict(seqs=ALL_SEQS)),
     # NDT-Transformer only: what the T-Net learned. Scans rotated about the vertical axis;
     # distance of T from the identity, whether T follows the rotation, descriptor drift.
     "tnet": dict(methods=["ndt"],
@@ -42,9 +42,17 @@ EVAL_TYPES = {
     # Rotation curve, no retraining: the map stays as recorded; every query is rotated about z
     # by its own angle drawn from U[-alpha, alpha] (alpha = 180: any heading). Recall per
     # sequence and alpha, and per heading group (relative to the true headings).
-    "rotation": dict(methods=["ndt", "bev", "myndt"],
-                     params=dict(seqs=ALL_SEQS, alpha_deg=[0, 5, 15, 45, 90, 180], seed=0)),
+    "rotation_curve": dict(methods=["ndt", "bev", "myndt"],
+                           params=dict(seqs=ALL_SEQS, alpha_deg=[0, 5, 15, 45, 90, 180], seed=0)),
 }
+# The names of the report (standard, rotation curve) replaced two earlier names; results saved
+# under the earlier names are still found (eval_dir) and are reported under the new ones.
+LEGACY = {"seqs_heading": "standard", "rotation": "rotation_curve"}
+
+
+def canonical(eval_type):
+    """The current name of an evaluation type (an earlier name -> its new one)."""
+    return LEGACY.get(eval_type, eval_type)
 
 
 def ckpt_name(ckpt_path):
@@ -69,7 +77,13 @@ def resolve_ckpt(run_dir, ckpt="last"):
 
 
 def eval_dir(run_dir, eval_type, ckpt_path):
-    return os.path.join(run_dir, "eval", eval_type, ckpt_name(ckpt_path))
+    """Folder of one evaluation; one saved under an earlier name of the type is used if it exists."""
+    path = os.path.join(run_dir, "eval", eval_type, ckpt_name(ckpt_path))
+    for old, new in LEGACY.items():
+        legacy = os.path.join(run_dir, "eval", old, ckpt_name(ckpt_path))
+        if new == eval_type and not os.path.exists(path) and os.path.exists(legacy):
+            return legacy
+    return path
 
 
 def full_eval_params(eval_type, overrides=None):
@@ -99,7 +113,7 @@ def write_config(out_dir, eval_type, params, ckpt_path, run_dir, complete, commi
 
 
 def write_seqs_summary(out_dir, seqs):
-    """summary.csv of a seqs_heading evaluation: recall per sequence + heading groups."""
+    """summary.csv of a standard evaluation: recall per sequence + heading groups."""
     import pandas as pd
     head_path = os.path.join(out_dir, "heading_summary.csv")
     head = pd.read_csv(head_path, dtype={"seq": str}) if os.path.exists(head_path) else None

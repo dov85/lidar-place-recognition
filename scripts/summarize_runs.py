@@ -2,7 +2,7 @@
 results.
 
 Reads <drive>/runs/<method>/*/config.json, metrics.csv and eval/<type>/<checkpoint>/, and writes
-  <drive>/runs_summary.csv    one row per run (parameters, training, the latest seqs_heading
+  <drive>/runs_summary.csv    one row per run (parameters, training, the latest standard
                               evaluation as columns eval_XX_R@1 ...)
   <drive>/evals_summary.csv   every evaluation: method, run, eval_type, checkpoint, then the
                               rows of its summary.csv (one per sequence, angle, ...)
@@ -14,8 +14,12 @@ import argparse
 import glob
 import json
 import os
+import sys
 
 import pandas as pd
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from lpr.evals import canonical  # noqa: E402
 
 KEY_PARAMS = ["lr", "epochs", "negatives", "positives", "margin", "margin1", "margin2", "batch",
               "pos_thr", "neg_thr", "hard_neg_after_epoch", "rot_aug", "rot_points", "cov_transform",
@@ -58,6 +62,7 @@ def main():
         for out in sorted(glob.glob(os.path.join(run_dir, "eval", "*", "*", "summary.csv"))):
             ckpt_dir = os.path.dirname(out)
             etype, ckpt = os.path.basename(os.path.dirname(ckpt_dir)), os.path.basename(ckpt_dir)
+            etype = canonical(etype)                    # results saved under an earlier name
             try:
                 complete = json.load(open(os.path.join(ckpt_dir, "config.json"))).get("complete")
             except (OSError, ValueError):
@@ -69,7 +74,7 @@ def main():
             t.insert(0, "run", row["run"])
             t.insert(0, "method", method)
             eval_rows.append(t)
-            if etype == "seqs_heading" and "seq" in t:   # latest checkpoint wins (sorted names)
+            if etype == "standard" and "seq" in t:   # latest checkpoint wins (sorted names)
                 row["eval_checkpoint"] = ckpt
                 for _, r in t.iterrows():
                     row[f"eval_{r['seq']}_R@1"] = r["R@1"]

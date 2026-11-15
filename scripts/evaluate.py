@@ -4,10 +4,10 @@ Results: <run_dir>/eval/<eval_type>/<checkpoint>/ (config.json, summary.csv, ...
 A complete evaluation with the same parameters and checkpoint is not repeated.
 
 Examples:
-  python scripts/evaluate.py --method ndt --run_dir <drive>/runs/ndt/<run> --eval_type seqs_heading \
+  python scripts/evaluate.py --method ndt --run_dir <drive>/runs/ndt/<run> --eval_type standard \
       --data_dir /content/ndt/<variant> --kitti_root /content/kitti
   python scripts/evaluate.py --method bev --run_dir <drive>/runs/bev/official_<variant> \
-      --ckpt third_party/BEVPlace2/runs/Aug08_10-17-29/model_best.pth.tar --eval_type seqs_heading \
+      --ckpt third_party/BEVPlace2/runs/Aug08_10-17-29/model_best.pth.tar --eval_type standard \
       --data_dir /content/bev/<variant> --kitti_root /content/kitti
 """
 import argparse
@@ -40,7 +40,7 @@ def has_data(method, data_dir, seq):
     return len(glob.glob(os.path.join(data_dir, seq, ext))) > 0
 
 
-def seqs_heading(a, params, ckpt, out):
+def standard(a, params, ckpt, out):
     done, missing = [], []
     for s in params["seqs"]:
         if not has_data(a.method, a.data_dir, s):
@@ -79,7 +79,7 @@ def tnet(a, params, ckpt, out):
 
 
 def yaw_eval(a, ckpt, out, seqs, levels, key, yaw_files, title, xlabel):
-    """Shared by compass and rotation: for every sequence, the database rotated by one .npy of
+    """Shared by compass and rotation_curve: for every sequence, the database rotated by one .npy of
     angles and the queries by one .npy per level; results in <out>/<key>_<level>/, a summary
     with a column <key> and a plot of Recall@1 against the level."""
     import matplotlib
@@ -154,7 +154,7 @@ def compass(a, params, ckpt, out):
                     "compass", "compass error sigma (deg)")
 
 
-def rotation(a, params, ckpt, out):
+def rotation_curve(a, params, ckpt, out):
     """Map as recorded; every query rotated about z by its own angle from U[-alpha, alpha]."""
     import numpy as np
 
@@ -170,7 +170,7 @@ def rotation(a, params, ckpt, out):
         return db_file, q_files
 
     return yaw_eval(a, ckpt, out, params["seqs"], params["alpha_deg"], "alpha_deg", yaw_files,
-                    "rotation", "query rotation amplitude alpha (deg)")
+                    "rotation curve", "query rotation amplitude alpha (deg)")
 
 
 def sparsity(a, params, ckpt, out):
@@ -262,8 +262,8 @@ def sparsity(a, params, ckpt, out):
     return not all_missing
 
 
-FUNCS = {"seqs_heading": seqs_heading, "tnet": tnet, "compass": compass, "sparsity": sparsity,
-         "rotation": rotation}
+FUNCS = {"standard": standard, "tnet": tnet, "compass": compass, "sparsity": sparsity,
+         "rotation_curve": rotation_curve}
 
 
 def main():

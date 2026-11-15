@@ -36,6 +36,7 @@ import pandas as pd  # noqa: E402
 from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from lpr.evals import canonical  # noqa: E402
 
 OTHER = ["00", "02", "05", "06"]
 RED, VIOLET, BLUE, TEAL = "#a31a1a", "#7a1fa2", "#1f3fa3", "#138585"
@@ -94,7 +95,7 @@ def curve(d, key):
 def fig_rotation(E, out):
     fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.2), sharey=True)
     for label in FIG_RUNS["rotation"]:
-        x, y08, yo = curve(select(E, "rotation", label), "alpha_deg")
+        x, y08, yo = curve(select(E, "rotation_curve", label), "alpha_deg")
         ax[0].plot(x, y08, label=label, **RUNS[label][1], **MARK)
         ax[1].plot(x, yo, **RUNS[label][1], **MARK)
     for a, title in zip(ax, ["KITTI 08", "mean of 00, 02, 05, 06"]):
@@ -388,6 +389,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     if set(only) & set(SUMMARY_FIGURES):
         E = pd.read_csv(a.summary, dtype={"seq": str, "run": str, "checkpoint": str})
+        E["eval_type"] = E.eval_type.map(canonical)   # summaries written with the earlier names
     for name in only:
         if name in SUMMARY_FIGURES:
             SUMMARY_FIGURES[name](E, a.out)
